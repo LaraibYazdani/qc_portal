@@ -1,16 +1,11 @@
 {
   "functions": {
-    "api/index.php":          { "runtime": "vercel-php@0.7.2" },
-    "api/login.php":          { "runtime": "vercel-php@0.7.2" },
-    "api/logout.php":         { "runtime": "vercel-php@0.7.2" },
-    "api/upload.php":         { "runtime": "vercel-php@0.7.2" },
-    "api/admin.php":          { "runtime": "vercel-php@0.7.2" },
-    "api/my_jobs.php":        { "runtime": "vercel-php@0.7.2" },
-    "api/reset_password.php": { "runtime": "vercel-php@0.7.2" }
+    "api/*.php": {
+      "runtime": "vercel-php@0.7.2"
+    }
   },
   "rewrites": [
-    { "source": "/",                          "destination": "/api/index.php" },
-    { "source": "/(index|login|logout|upload|admin|my_jobs|reset_password).php",
-      "destination": "/api/$1.php" }
+    { "source": "/",                                                              "destination": "/api/index.php" },
+    { "source": "/(index|login|logout|upload|admin|my_jobs|reset_password).php", "destination": "/api/$1.php" }
   ]
 }
