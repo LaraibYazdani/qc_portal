@@ -1,0 +1,5 @@
+# Disable listing and PHP execution within public uploads
+Options -Indexes
+<FilesMatch "\.(php|php\d*|phtml|phar)$">
+  Require all denied
+</FilesMatch>
