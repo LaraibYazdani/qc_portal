@@ -1,0 +1,10 @@
+# Environment variables — never commit real credentials
+.env
+
+# Aiven CA certificate
+aiven-ca.pem
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp

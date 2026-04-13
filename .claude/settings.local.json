@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"C:\\\\xampp\\\\php\\\\php.exe\" run_schema.php)"
+    ]
+  }
+}

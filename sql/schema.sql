@@ -1,6 +1,5 @@
--- Database: qc_portal
-CREATE DATABASE IF NOT EXISTS qc_portal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE qc_portal;
+-- Run this against your Aiven 'defaultdb' database.
+-- Do NOT include CREATE DATABASE / USE statements — Aiven manages the database for you.
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
