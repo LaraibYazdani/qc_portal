@@ -1,16 +1,16 @@
 {
   "functions": {
-    "public/index.php":          { "runtime": "vercel-php@0.7.2" },
-    "public/login.php":          { "runtime": "vercel-php@0.7.2" },
-    "public/logout.php":         { "runtime": "vercel-php@0.7.2" },
-    "public/upload.php":         { "runtime": "vercel-php@0.7.2" },
-    "public/admin.php":          { "runtime": "vercel-php@0.7.2" },
-    "public/my_jobs.php":        { "runtime": "vercel-php@0.7.2" },
-    "public/reset_password.php": { "runtime": "vercel-php@0.7.2" }
+    "api/index.php":          { "runtime": "vercel-php@0.7.2" },
+    "api/login.php":          { "runtime": "vercel-php@0.7.2" },
+    "api/logout.php":         { "runtime": "vercel-php@0.7.2" },
+    "api/upload.php":         { "runtime": "vercel-php@0.7.2" },
+    "api/admin.php":          { "runtime": "vercel-php@0.7.2" },
+    "api/my_jobs.php":        { "runtime": "vercel-php@0.7.2" },
+    "api/reset_password.php": { "runtime": "vercel-php@0.7.2" }
   },
   "rewrites": [
-    { "source": "/",                          "destination": "/public/index.php" },
+    { "source": "/",                          "destination": "/api/index.php" },
     { "source": "/(index|login|logout|upload|admin|my_jobs|reset_password).php",
-      "destination": "/public/$1.php" }
+      "destination": "/api/$1.php" }
   ]
 }
