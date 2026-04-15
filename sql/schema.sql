@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(100) NOT NULL,
   email VARCHAR(191) NOT NULL UNIQUE,
   password VARCHAR(255) NOT NULL,
-  role ENUM('sales','admin') NOT NULL DEFAULT 'sales',
+  role ENUM('sales','admin','operator') NOT NULL DEFAULT 'sales',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
@@ -26,5 +26,5 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 -- Create an initial admin user (email: admin@example.com / password: Admin@123)
 INSERT INTO users (name, email, password, role)
-VALUES ('Administrator', 'admin@example.com', '$2y$10$N0eZZXr5vN3F/0H3Hf0H9uFsk0Q0VjB2GhyS8mNwFZrX3g9cQ0mGq', 'admin')
+VALUES ('Administrator', 'admin@example.com', '$2a$10$zoGQNOJ0e9MuFo9TE/TfCuO3.vxpjNnikLbwYx4ICE82N35KPhFGu', 'admin')
 ON DUPLICATE KEY UPDATE email = email;

@@ -1,10 +1,12 @@
 # Environment variables — never commit real credentials
 .env
 
-# Aiven CA certificate
-aiven-ca.pem
-
 # OS / editor noise
 .DS_Store
 Thumbs.db
 *.swp
+node_modules/
+backend/dist/
+backend/uploads/
+frontend/build/
+package-lock.json

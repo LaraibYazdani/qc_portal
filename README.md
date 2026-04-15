@@ -1,50 +1,101 @@
 # QC Portal (Carton Design Verification)
 
 ## Overview
-Internal web application for ensuring correct artwork on the carton printing line. Sales/Admin upload approved designs, factory operators can instantly search and verify.
+Modern React web application for ensuring correct artwork on the carton printing line. Sales/Admin upload approved designs, factory operators can instantly search and verify.
+
+## Tech Stack
+- **Frontend**: React 18 + TypeScript + Tailwind CSS
+- **Backend**: Node.js + Express + TypeScript
+- **Database**: MySQL
+- **Storage**: Cloudinary
+- **Authentication**: JWT tokens
 
 ## Requirements
-- XAMPP (Apache + MySQL + PHP 8+)
-- phpMyAdmin
+- Node.js 16+
+- MySQL 8.0+
+- Cloudinary account
 
-## Setup (Local XAMPP)
-1. Copy project folder `qc_portal` into your XAMPP web root. On Windows default: `C:\xampp\htdocs\qc_portal`.
-2. Create uploads directory permissions (already included): `uploads/jobs`.
-3. Create database and tables:
-   - Open phpMyAdmin
-   - Import file `sql/schema.sql`
-4. Configure DB credentials if needed:
-   - Edit `config/config.php` to match your MySQL settings.
-5. Access application:
-   - Operator View (no login): `http://localhost/qc_portal/public/index.php`
-   - Login (sales/admin): `http://localhost/qc_portal/public/login.php`
+## Quick Start
 
-## Default Admin
-- Email: `admin@example.com`
-- Password: `Admin@123`
+### Database Setup
+1. Create a MySQL database named `qc_portal`
+2. Run the setup script:
+   ```bash
+   mysql -u your_user -p qc_portal < sql/database_setup.sql
+   ```
+
+### Backend Setup
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   npm install
+   ```
+
+2. Create environment file:
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Update `.env` with your credentials (database, JWT secret, Cloudinary)
+
+4. Start the backend server:
+   ```bash
+   npm run dev
+   ```
+
+### Frontend Setup
+1. Navigate to the frontend directory:
+   ```bash
+   cd frontend
+   npm install
+   npm start
+   ```
+
+2. Open http://localhost:3000 in your browser
+
+## Login Credentials
+
+### 1. Admin Users (Full Access)
+- **Ahmed Imran** (AM SHEQ, ID: 30001891)
+  - Email: `ahmed.imran@company.com`
+  - Password: `Sales@123`
+  
+- **Administrator** (System Admin)
+  - Email: `admin@example.com`
+  - Password: `Admin@123`
+
+### 2. Sales User (Upload & View Own Jobs)
+- **Mirza Sarwan** (Incharge Arts & Design, ID: 30001037)
+  - Email: `mirza.sarwan@company.com`
+  - Password: `Sales@123`
+
+### 3. Operator User (View Only Access)
+- **Rashid Ali** (Assistant Operator, ID: 30001278)
+  - Email: `rashid.ali@company.com`
+  - Password: `Operator@123`
+  - Role: Operator (View-only access)
 
 ## Roles
-- Sales: can upload new job designs and view their uploads.
-- Admin: full access, manage jobs and users.
-- Operator: no login, can search and view designs.
+- **Operator**: No login required - search and view designs
+- **Sales**: Login required - upload designs, view own uploads
+- **Admin**: Full access - manage all jobs and users
 
-## Security Notes
-- Prepared statements used for queries.
-- Upload validation by MIME, extension, and size.
-- Uploads directory blocks PHP execution and directory listing.
-- Sessions for authentication.
+## Features
+- Modern responsive UI with Tailwind CSS
+- Drag-and-drop file upload
+- JWT-based authentication
+- Role-based access control
+- Cloudinary file storage
+- Mobile-friendly design
+- Real-time search
 
-## Deployment (Internal Server)
-1. Install Apache + PHP 8 + MySQL.
-2. Copy project folder to web root, ensure `uploads/jobs` is writable by the web server.
-3. Create DB and import `sql/schema.sql`.
-4. Set correct base URLs if served from a subdirectory and adjust `config/config.php` (`base_url`, `upload_url`).
-5. Restrict network access to internal IPs only as per company policy.
+## Security
+- JWT token authentication
+- Password hashing with bcrypt
+- Role-based access control
+- File upload validation
+- SQL injection prevention
+- CORS configuration
 
-## File Storage
-- Files are stored in `uploads/jobs/` with filename as `JOBNUMBER.ext`.
-- Only PNG, JPG/JPEG, PDF are allowed.
-
-## Notes
-- No cloud dependencies.
-- Designed for fast operator lookup and high-contrast UI suitable for factory floor.
+## Deployment
+See [README-REACT.md](README-REACT.md) for detailed deployment instructions.
