@@ -1,6 +1,6 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
 import pool from '../config/database';
 import { UserResponse, LoginRequest, LoginResponse } from '../models/User';
@@ -40,15 +40,16 @@ router.post('/login', [
     }
 
     // Create JWT token
+    const payload = {
+      id: user.id, 
+      name: user.name, 
+      email: user.email, 
+      role: user.role 
+    };
     const token = jwt.sign(
-      { 
-        id: user.id, 
-        name: user.name, 
-        email: user.email, 
-        role: user.role 
-      },
+      payload,
       process.env.JWT_SECRET!,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+      { expiresIn: (process.env.JWT_EXPIRES_IN || '24h') as any }
     );
 
     const userResponse: UserResponse = {

@@ -16,13 +16,13 @@ export interface CreateJobRequest {
   job_number: string;
   po_number?: string;
   design_name?: string;
-  design: File;
+  design: any;
 }
 
 export interface UpdateJobRequest {
   po_number?: string;
   design_name?: string;
-  design?: File;
+  design?: any;
 }
 
 export interface JobSearchRequest {
