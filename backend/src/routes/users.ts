@@ -61,12 +61,12 @@ router.post('/', authenticateToken, requireRole(['admin']), [
     const [insertResult] = await pool.execute(
       'INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)',
       [name, email, hashedPassword, role]
-    ) as [any[], any];
+    ) as [any, any];
 
     res.json({ 
       success: true, 
       message: 'User created successfully',
-      data: { id: insertResult.insertId }
+      data: { id: (insertResult as any).insertId }
     });
   } catch (error) {
     console.error('Create user error:', error);
