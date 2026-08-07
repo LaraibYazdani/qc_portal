@@ -50,11 +50,11 @@ async function saveFile(
   const destPath = path.join(UPLOAD_DIR, filename);
 
   if (mime === 'image/jpeg') {
-    await sharp(buffer)
+    await sharp(buffer, { limitInputPixels: false })
       .jpeg({ quality: 88 })
       .toFile(destPath);
   } else if (mime === 'image/png') {
-    await sharp(buffer)
+    await sharp(buffer, { limitInputPixels: false })
       .png({ compressionLevel: 9, adaptiveFiltering: true })
       .toFile(destPath);
   } else {
@@ -232,6 +232,117 @@ router.post('/', authenticateToken, requireRole(['admin', 'sales']), upload.sing
     res.json({ success: true, message: 'Job created successfully' });
   } catch (error) {
     console.error('Create job error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// Bulk upload — sales + admin. Filenames must follow JOBNUMBER_DESIGNNAME.ext;
+// job number is everything before the first underscore, design name is everything after.
+const BULK_MAX_FILES = 25;
+
+router.post('/bulk', authenticateToken, requireRole(['admin', 'sales']), upload.array('designs', BULK_MAX_FILES), async (req: express.Request, res: express.Response) => {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    const user = (req as any).user;
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({ success: false, message: 'No files provided' });
+    }
+
+    const createdInThisBatch = new Set<string>();
+    const results: Array<{
+      filename: string;
+      job_number: string | null;
+      design_name: string | null;
+      status: 'created' | 'updated' | 'failed';
+      message: string;
+    }> = [];
+
+    for (const file of files) {
+      const nameWithoutExt = path.basename(file.originalname, path.extname(file.originalname));
+      const separatorIndex = nameWithoutExt.indexOf('_');
+
+      if (separatorIndex <= 0) {
+        results.push({
+          filename: file.originalname,
+          job_number: null,
+          design_name: null,
+          status: 'failed',
+          message: 'Filename must follow JOBNUMBER_DESIGNNAME.ext, e.g. 267N2943_GMSAHOTMELTGLU_C[18].jpg'
+        });
+        continue;
+      }
+
+      const jobNumber = nameWithoutExt.slice(0, separatorIndex).toUpperCase();
+      const designName = nameWithoutExt.slice(separatorIndex + 1);
+
+      try {
+        const [existingRows] = await pool.execute(
+          'SELECT id, image_path FROM jobs WHERE job_number = ?',
+          [jobNumber]
+        ) as [any[], any];
+        const existing = existingRows[0];
+
+        if (existing && !createdInThisBatch.has(jobNumber)) {
+          // Pre-existed before this batch started — protect it, don't overwrite.
+          results.push({
+            filename: file.originalname,
+            job_number: jobNumber,
+            design_name: designName,
+            status: 'failed',
+            message: 'Job number already exists'
+          });
+          continue;
+        }
+
+        const filename = await saveFile(file.buffer, jobNumber, file.mimetype, file.originalname);
+        const imagePath = `/uploads/${filename}`;
+
+        if (existing && createdInThisBatch.has(jobNumber)) {
+          // Duplicate within this same batch — overwrite, last file wins.
+          if (path.extname(existing.image_path).toLowerCase() !== path.extname(imagePath).toLowerCase()) {
+            deleteFile(existing.image_path);
+          }
+          await pool.execute(
+            'UPDATE jobs SET design_name = ?, image_path = ? WHERE id = ?',
+            [designName, imagePath, existing.id]
+          );
+          results.push({
+            filename: file.originalname,
+            job_number: jobNumber,
+            design_name: designName,
+            status: 'updated',
+            message: 'Overwrote duplicate job number from earlier in this batch'
+          });
+        } else {
+          await pool.execute(
+            'INSERT INTO jobs (job_number, po_number, design_name, image_path, uploaded_by) VALUES (?, ?, ?, ?, ?)',
+            [jobNumber, null, designName, imagePath, user.id]
+          );
+          createdInThisBatch.add(jobNumber);
+          results.push({
+            filename: file.originalname,
+            job_number: jobNumber,
+            design_name: designName,
+            status: 'created',
+            message: 'Job created successfully'
+          });
+        }
+      } catch (fileError) {
+        console.error('Bulk upload file error:', fileError);
+        results.push({
+          filename: file.originalname,
+          job_number: jobNumber,
+          design_name: designName,
+          status: 'failed',
+          message: 'Server error while processing this file'
+        });
+      }
+    }
+
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('Bulk upload error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });

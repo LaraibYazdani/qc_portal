@@ -6,6 +6,7 @@ import { Navbar } from './components/Navbar.tsx';
 import { Login } from './pages/Login.tsx';
 import { OperatorView } from './pages/OperatorView.tsx';
 import { Upload } from './pages/Upload.tsx';
+import { BulkUpload } from './pages/BulkUpload.tsx';
 import { Admin } from './pages/Admin.tsx';
 import { MyJobs } from './pages/MyJobs.tsx';
 import './App.css';
@@ -25,6 +26,12 @@ function App() {
             <Route path="/upload" element={
               <ProtectedRoute roles={['sales', 'admin']}>
                 <Upload />
+              </ProtectedRoute>
+            } />
+
+            <Route path="/bulk-upload" element={
+              <ProtectedRoute roles={['sales', 'admin']}>
+                <BulkUpload />
               </ProtectedRoute>
             } />
 

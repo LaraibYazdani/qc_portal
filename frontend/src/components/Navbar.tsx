@@ -37,6 +37,7 @@ export const Navbar: React.FC = () => {
             {(user.role === 'admin' || user.role === 'sales') && (
               <>
                 <Link to="/upload" className={linkClass('/upload')}>Upload</Link>
+                <Link to="/bulk-upload" className={linkClass('/bulk-upload')}>Bulk Upload</Link>
                 <Link to="/my-jobs" className={linkClass('/my-jobs')}>My Jobs</Link>
               </>
             )}
