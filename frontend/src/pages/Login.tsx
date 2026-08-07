@@ -82,24 +82,6 @@ export const Login: React.FC = () => {
           </button>
         </form>
 
-        <div className="mt-6 text-sm text-gray-600">
-          <p className="font-semibold text-gray-700 mb-2">Login Credentials:</p>
-          <div className="space-y-2">
-            <div className="border-l-2 border-blue-500 pl-2">
-              <p className="font-medium">Admin Users:</p>
-              <p>ahmed.imran@company.com / Sales@123</p>
-              <p>admin@example.com / Admin@123</p>
-            </div>
-            <div className="border-l-2 border-green-500 pl-2">
-              <p className="font-medium">Sales User:</p>
-              <p>mirza.sarwan@company.com / Sales@123</p>
-            </div>
-            <div className="border-l-2 border-purple-500 pl-2">
-              <p className="font-medium">Operator:</p>
-              <p>rashid.ali@company.com / Operator@123</p>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
