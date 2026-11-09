@@ -7,12 +7,19 @@ import path from 'path';
 import { authRoutes } from './routes/auth';
 import { jobRoutes } from './routes/jobs';
 import { userRoutes } from './routes/users';
+import { companyRoutes } from './routes/companies';
 import { testConnection } from './config/database';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Behind IIS / another reverse proxy, set TRUST_PROXY=1 so the audit log and
+// rate limiter see the real client IP instead of the proxy's.
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+}
 
 // Security middleware
 app.use(helmet({
@@ -26,10 +33,11 @@ app.use(cors({
   credentials: true
 }));
 
-// Rate limiting
+// Rate limiting. Factory terminals and phones often share one public IP, so the
+// default is higher than phase 1's 100; tune with RATE_LIMIT_MAX.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100
+  max: Number(process.env.RATE_LIMIT_MAX) || 1000
 });
 app.use('/api/', limiter);
 
@@ -44,6 +52,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/api/auth', authRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/companies', companyRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -52,6 +61,11 @@ app.get('/api/health', (_req, res) => {
 
 // Error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Upload problems (wrong file type, too large, too many files) are the user's to fix
+  if (err?.name === 'MulterError' || /Invalid file type/.test(err?.message ?? '')) {
+    res.status(400).json({ success: false, message: err.code === 'LIMIT_FILE_SIZE' ? 'File is larger than 20 MB' : err.message });
+    return;
+  }
   console.error(err.stack);
   res.status(500).json({
     error: 'Something went wrong!',

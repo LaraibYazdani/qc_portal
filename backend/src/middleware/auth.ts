@@ -1,12 +1,18 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { UserResponse } from '../models/User';
+import pool from '../config/database';
+import { AuthUser } from '../models/User';
 
-interface AuthRequest extends Request {
-  user?: UserResponse;
+export interface AuthRequest extends Request {
+  user?: AuthUser;
 }
 
-export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction): void => {
+/**
+ * Verifies the Bearer token, then loads the user from the database on every
+ * request: a disabled account, a role change or a company move takes effect
+ * immediately instead of when the token expires.
+ */
+export const authenticateToken = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
@@ -15,15 +21,33 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
     return;
   }
 
-  jwt.verify(token, process.env.JWT_SECRET!, (err, decoded) => {
-    if (err) {
-      res.status(403).json({ error: 'Invalid or expired token' });
+  let decoded: any;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET!);
+  } catch {
+    res.status(403).json({ error: 'Invalid or expired token' });
+    return;
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT u.id, u.name, u.email, u.role, u.company_id, u.status, u.created_at,
+              c.code AS company_code, c.name AS company_name
+       FROM users u LEFT JOIN companies c ON u.company_id = c.id
+       WHERE u.id = ?`,
+      [decoded.id]
+    ) as [any[], any];
+
+    if (rows.length === 0 || rows[0].status !== 'active') {
+      res.status(401).json({ error: 'Your account is disabled or no longer exists. Contact your administrator.' });
       return;
     }
-    
-    req.user = decoded as UserResponse;
+
+    req.user = rows[0];
     next();
-  });
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const requireRole = (roles: string[]) => {

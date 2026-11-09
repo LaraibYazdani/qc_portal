@@ -2,21 +2,30 @@
 
 ## Project Overview
 
-**QC Portal** is an internal web app for quality control of carton printing artwork.
-Operators look up designs by job or PO number. Sales staff upload designs. Admins manage everything.
+**QC Portal** is an internal web app for quality control of carton printing artwork,
+used across the Packages group of companies (multi-company, with sub-companies).
+Quality checkers look up designs by job or PO number. Uploaders (sales/pre-press) upload designs. Admins manage everything.
+Phase 1 is live with BSPL › Corrugated Division's artwork; phase 2 adds the photo-checking engine, SAP IAS login and a mobile app.
 
-**Deployment Target**: Railway (Node.js backend + React frontend)
+**Deployment Target**: company Windows server (Node.js backend serving the built React frontend)
 
 ---
 
 ## Tech Stack
 
 - **Backend**: Node.js + Express + TypeScript
-- **Frontend**: React + TypeScript + Tailwind CSS
-- **Database**: MySQL via mysql2 (local XAMPP for dev)
-- **Auth**: JWT (bcryptjs for password hashing)
-- **File Storage**: Cloudinary (images compressed before upload)
+- **Frontend**: React + TypeScript + Tailwind CSS (Vite)
+- **Database**: MariaDB 10.4 in production (XAMPP), MySQL 8 compatible, via mysql2
+- **Auth**: JWT (bcryptjs for password hashing); SAP IAS planned
+- **File Storage**: local disk, `backend/uploads/`, all access through `src/lib/storage.ts`
 - **Architecture**: REST API (backend) + SPA (frontend)
+
+## Rules for changes
+
+- **Never delete records or files.** Jobs are archived, users disabled, designs versioned.
+- **Every change that matters goes to `audit_log`** via `src/lib/audit.ts`, in the same transaction.
+- **Every query on jobs/users is scoped by company** with `visibleCompanyIds()` / `scopeClause()` from `src/lib/companies.ts`.
+- **Schema changes only through numbered migrations** in `sql/migrations/` with a rollback file in `sql/migrations/down/`. Never edit an applied migration.
 
 ---
 
@@ -28,40 +37,60 @@ qc_portal/
 │   └── src/
 │       ├── index.ts              # Express app entry point (port 5000)
 │       ├── config/database.ts    # mysql2 connection pool
-│       ├── middleware/auth.ts    # JWT middleware
-│       ├── models/User.ts        # User types
-│       └── routes/
-│           ├── auth.ts           # POST /api/auth/login, GET /api/auth/me
-│           └── jobs.ts           # Job CRUD + Cloudinary upload
+│       ├── middleware/auth.ts    # JWT check + loads the user from the DB on every request
+│       ├── lib/
+│       │   ├── companies.ts      # company tree, visibility scoping
+│       │   ├── audit.ts          # append-only audit log
+│       │   ├── storage.ts        # all file reads/writes (versioned design folders)
+│       │   └── sfCompanyResolver.ts  # SuccessFactors EmpJob → company (sub-company rules)
+│       ├── models/               # User, Job types
+│       ├── routes/
+│       │   ├── auth.ts           # login, me, logout
+│       │   ├── jobs.ts           # search, upload, bulk, versions, archive/restore
+│       │   ├── users.ts          # user management (company-scoped)
+│       │   └── companies.ts      # company tree, SuccessFactors mapping rules
+│       └── scripts/migrate.ts    # migration runner (npm run migrate)
 ├── frontend/
 │   └── src/
 │       ├── contexts/AuthContext.tsx  # JWT auth state
 │       └── ...pages and components
 ├── sql/
-│   └── schema.sql               # DB schema + default admin (bcryptjs hash)
+│   ├── migrations/              # numbered migrations + down/ rollbacks
+│   └── schema.sql               # phase 1 schema (fresh installs: run it, then npm run migrate)
+├── docs/RELEASE_MULTI_COMPANY.md  # release + rollback runbook
 ├── .env                         # Local dev env vars (never committed)
-├── .env.example                 # Documents all required env vars
-└── Dockerfile                   # Railway deployment
+└── .env.example                 # Documents all required env vars
 ```
 
 ---
 
 ## Database Schema
 
-**users**: id, name, email (UNIQUE), password (bcryptjs), role (sales|admin), created_at
-**jobs**: id, job_number (UNIQUE), po_number, design_name, image_path (Cloudinary URL), uploaded_by (FK→users), created_at
+- **companies**: tree via `parent_id`. Top level = legal entities with `sf_company_code` (EmpJob.company: 1000 PL, 1100 PCL, 1200 BSPL, …). Sub-companies below them (e.g. BSPL-CORR Corrugated Division).
+- **company_sf_mappings**: rules placing a SuccessFactors employee in a company: company code + optional EmpJob field (`division`, `businessUnit`, `costCenter`, …) equals/prefix value. Most specific wins.
+- **users**: id, name, email, password (NULL for IAS users), role, company_id (NULL = group admin), sf_employee_id, status (active/pending/disabled), auth_source, last_login_at
+- **jobs**: job_number unique per legal entity, company_id, legal_entity_id, po_number, design_name, image_path (= current version's display file), status (active/archived), archive fields, current_version_id
+- **design_versions**: every uploaded design per job (file_path, original_path, sha256, reference_status for the QC engine)
+- **audit_log**: append-only (DB triggers block UPDATE/DELETE)
+- **schema_migrations**: applied migrations
 
-Default admin: `admin@example.com` / `Admin@123`
+Default admin (fresh installs only): `admin@example.com` / `Admin@123`
 
 ---
 
 ## User Roles
 
-| Role | Capabilities |
-|------|-------------|
-| Operator | No login — search/view designs only |
-| Sales | Login — upload designs, view own uploads |
-| Admin | Login — full access, manage all jobs |
+Stored values are phase 1's so existing accounts keep working.
+
+| Stored role | Shown as | Capabilities |
+|------|------|-------------|
+| `operator` | Quality checker | Search/view designs (public operator page also works without login for now) |
+| `qc_supervisor` | QC supervisor | Quality checker + approvals (phase 3) |
+| `sales` | Uploader | Upload designs and new versions, view own uploads |
+| `company_admin` | Company admin | Manage jobs and users of their company and its sub-companies |
+| `admin` | Group admin | Everything, all companies |
+
+A user sees their own company and every company below it in the tree.
 
 ---
 
@@ -76,13 +105,12 @@ Default admin: `admin@example.com` / `Admin@123`
 | `DB_PASS` | Yes | MySQL password |
 | `JWT_SECRET` | Yes | Secret key for signing JWTs |
 | `JWT_EXPIRES_IN` | No | Token expiry, default `24h` |
-| `CLOUDINARY_CLOUD_NAME` | Yes | From Cloudinary dashboard |
-| `CLOUDINARY_API_KEY` | Yes | From Cloudinary dashboard |
-| `CLOUDINARY_API_SECRET` | Yes | From Cloudinary dashboard |
-| `CLOUDINARY_FOLDER` | No | Defaults to `qc_jobs` |
 | `PORT` | No | Backend port, default `5000` |
 | `NODE_ENV` | No | `development` or `production` |
 | `CORS_ORIGIN` | No | Frontend URL for CORS |
+| `RATE_LIMIT_MAX` | No | Requests per IP per 15 min on /api, default `1000` |
+| `TRUST_PROXY` | No | `1` behind IIS / a reverse proxy |
+| `LEGACY_DEFAULT_COMPANY_CODE` | No | Company for uploads by users without a company, default `BSPL-CORR` |
 
 ---
 
@@ -96,7 +124,10 @@ cd backend && npm install && npm run dev
 cd frontend && npm install && npm start
 ```
 
-Frontend proxies `/api/*` requests to `http://localhost:5000` via `"proxy"` in `frontend/package.json`.
+Frontend proxies `/api/*` and `/uploads/*` to `http://localhost:5000` via `frontend/vite.config.ts`.
+
+Database changes: `cd backend && npm run migrate -- --status`, then `npm run migrate`.
+Tests: `cd backend && npm test`.
 
 ---
 
@@ -108,3 +139,4 @@ Frontend proxies `/api/*` requests to `http://localhost:5000` via `"proxy"` in `
 | 2026-04-13 | Fixed login network error | Added proxy to frontend/package.json |
 | 2026-04-13 | Fixed admin password hash | PHP bcrypt hash incompatible with bcryptjs — regenerated |
 | 2026-04-13 | Removed Aiven/SSL dependencies | Using local MySQL only |
+| 2026-11-08 | Multi-company foundation | Companies tree, design versions, archive instead of delete, audit log, migrations. See docs/RELEASE_MULTI_COMPANY.md |

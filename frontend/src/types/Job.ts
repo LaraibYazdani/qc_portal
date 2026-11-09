@@ -10,6 +10,13 @@ export interface Job {
 
 export interface JobResponse extends Job {
   uploaded_by_name?: string;
+  company_id?: number | null;
+  company_code?: string | null;
+  company_name?: string | null;
+  status?: 'active' | 'archived';
+  current_version?: number | null;
+  archived_at?: string | null;
+  archive_reason?: string | null;
 }
 
 export interface CreateJobRequest {

@@ -24,31 +24,31 @@ function App() {
 
             {/* Protected routes */}
             <Route path="/upload" element={
-              <ProtectedRoute roles={['sales', 'admin']}>
+              <ProtectedRoute roles={['sales', 'company_admin', 'admin']}>
                 <Upload />
               </ProtectedRoute>
             } />
 
             <Route path="/bulk-upload" element={
-              <ProtectedRoute roles={['sales', 'admin']}>
+              <ProtectedRoute roles={['sales', 'company_admin', 'admin']}>
                 <BulkUpload />
               </ProtectedRoute>
             } />
 
             <Route path="/admin" element={
-              <ProtectedRoute roles={['admin']}>
+              <ProtectedRoute roles={['company_admin', 'admin']}>
                 <Admin />
               </ProtectedRoute>
             } />
 
             <Route path="/my-jobs" element={
-              <ProtectedRoute roles={['sales', 'admin']}>
+              <ProtectedRoute roles={['sales', 'company_admin', 'admin']}>
                 <MyJobs />
               </ProtectedRoute>
             } />
 
             <Route path="/operator-view" element={
-              <ProtectedRoute roles={['operator']}>
+              <ProtectedRoute roles={['operator', 'qc_supervisor']}>
                 <OperatorView />
               </ProtectedRoute>
             } />

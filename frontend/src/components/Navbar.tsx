@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.tsx';
+import { ROLE_LABELS } from '../types/User';
 
 export const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -34,17 +35,17 @@ export const Navbar: React.FC = () => {
         {/* Nav links — role-based */}
         {user && (
           <div className="flex items-center gap-1">
-            {(user.role === 'admin' || user.role === 'sales') && (
+            {['admin', 'company_admin', 'sales'].includes(user.role) && (
               <>
                 <Link to="/upload" className={linkClass('/upload')}>Upload</Link>
                 <Link to="/bulk-upload" className={linkClass('/bulk-upload')}>Bulk Upload</Link>
                 <Link to="/my-jobs" className={linkClass('/my-jobs')}>My Jobs</Link>
               </>
             )}
-            {user.role === 'admin' && (
+            {['admin', 'company_admin'].includes(user.role) && (
               <Link to="/admin" className={linkClass('/admin')}>Admin</Link>
             )}
-            {user.role === 'operator' && (
+            {['operator', 'qc_supervisor'].includes(user.role) && (
               <Link to="/operator-view" className={linkClass('/operator-view')}>Search</Link>
             )}
           </div>
@@ -55,9 +56,12 @@ export const Navbar: React.FC = () => {
           {user && (
             <span className="text-sm text-blue-200">
               {user.name}
-              <span className="ml-1 text-xs bg-blue-700 text-blue-100 px-1.5 py-0.5 rounded capitalize">
-                {user.role}
+              <span className="ml-1 text-xs bg-blue-700 text-blue-100 px-1.5 py-0.5 rounded">
+                {ROLE_LABELS[user.role] ?? user.role}
               </span>
+              {user.company_name && (
+                <span className="ml-1 text-xs text-blue-300">{user.company_name}</span>
+              )}
             </span>
           )}
           <button

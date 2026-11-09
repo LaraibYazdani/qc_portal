@@ -33,26 +33,32 @@ export const Admin: React.FC = () => {
     }
   };
 
-  const handleDelete = async (jobId: number) => {
-    if (!window.confirm('Are you sure you want to delete this job?')) {
+  // Jobs are archived, not deleted: hidden from search but kept for audit and restorable.
+  const handleArchive = async (job: JobResponse) => {
+    const reason = window.prompt(
+      `Archive job ${job.job_number}? It will no longer appear in searches. Its files and history are kept.\n\nReason (optional):`
+    );
+    if (reason === null) {
       return;
     }
 
     try {
-      const response = await fetch(`/api/jobs/${jobId}`, {
+      const response = await fetch(`/api/jobs/${job.id}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ reason })
       });
 
       const data = await response.json();
 
       if (data.success) {
-        setMessage({ type: 'success', text: 'Job deleted successfully' });
+        setMessage({ type: 'success', text: `Job ${job.job_number} archived` });
         fetchJobs();
       } else {
-        setMessage({ type: 'error', text: data.message || 'Failed to delete job' });
+        setMessage({ type: 'error', text: data.message || 'Failed to archive job' });
       }
     } catch (error) {
       setMessage({ type: 'error', text: 'Network error' });
@@ -96,6 +102,7 @@ export const Admin: React.FC = () => {
             <div className="flex items-center space-x-4">
               <span className="text-sm text-gray-600">
                 Admin: <span className="font-semibold">{user?.name}</span>
+                {user?.company_name && <span className="ml-1">({user.company_name})</span>}
               </span>
               <button
                 onClick={logout}
@@ -144,6 +151,9 @@ export const Admin: React.FC = () => {
                       Design Name
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Company
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Uploaded By
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -168,6 +178,12 @@ export const Admin: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 text-gray-500">
                         {job.design_name || '-'}
+                        {job.current_version && job.current_version > 1 && (
+                          <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">v{job.current_version}</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-500">
+                        {job.company_name || '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-gray-500">
                         {job.uploaded_by_name}
@@ -186,10 +202,10 @@ export const Admin: React.FC = () => {
                             View
                           </a>
                           <button
-                            onClick={() => handleDelete(job.id)}
+                            onClick={() => handleArchive(job)}
                             className="text-red-600 hover:text-red-900"
                           >
-                            Delete
+                            Archive
                           </button>
                         </div>
                       </td>

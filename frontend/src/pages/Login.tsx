@@ -10,8 +10,8 @@ export const Login: React.FC = () => {
 
   // Redirect if already logged in
   if (user) {
-    const redirectPath = user.role === 'admin' ? '/admin' : 
-                        user.role === 'operator' ? '/operator-view' : '/upload';
+    const redirectPath = ['admin', 'company_admin'].includes(user.role) ? '/admin' :
+                        ['operator', 'qc_supervisor'].includes(user.role) ? '/operator-view' : '/upload';
     return <Navigate to={redirectPath} replace />;
   }
 
