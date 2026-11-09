@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAuth } from '../contexts/AuthContext.tsx';
+import { isUsualJobNumber, normaliseJobNumber } from '../utils/jobNumber';
 
 export const Upload: React.FC = () => {
   const { user } = useAuth();
@@ -31,9 +32,13 @@ export const Upload: React.FC = () => {
     maxSize: 20 * 1024 * 1024 // 20MB
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+    submit(false);
+  };
+
+  // allowUnusual: the uploader confirmed a job number that doesn't follow the usual format
+  const submit = async (allowUnusual: boolean) => {
     if (!selectedFile) {
       setMessage({ type: 'error', text: 'Please select a design file' });
       return;
@@ -49,9 +54,10 @@ export const Upload: React.FC = () => {
 
     try {
       const formDataToSend = new FormData();
-      formDataToSend.append('job_number', formData.job_number.toUpperCase());
+      formDataToSend.append('job_number', normaliseJobNumber(formData.job_number));
       formDataToSend.append('po_number', formData.po_number);
       formDataToSend.append('design_name', formData.design_name);
+      if (allowUnusual) formDataToSend.append('allow_unusual', 'true');
       formDataToSend.append('design', selectedFile);
 
       const response = await fetch('/api/jobs', {
@@ -68,6 +74,10 @@ export const Upload: React.FC = () => {
         setMessage({ type: 'success', text: 'Design uploaded successfully!' });
         setFormData({ job_number: '', po_number: '', design_name: '' });
         setSelectedFile(null);
+      } else if (data.code === 'UNUSUAL_JOB_NUMBER' && !allowUnusual) {
+        setLoading(false);
+        if (window.confirm(`${data.message}\n\nSave it with this job number anyway?`)) await submit(true);
+        return;
       } else {
         setMessage({ type: 'error', text: data.message || 'Upload failed' });
       }
@@ -111,9 +121,14 @@ export const Upload: React.FC = () => {
                   value={formData.job_number}
                   onChange={(e) => setFormData({ ...formData, job_number: e.target.value.toUpperCase() })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter job number"
+                  placeholder="e.g. 267N2943"
                   required
                 />
+                {formData.job_number.trim() && !isUsualJobNumber(formData.job_number) && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    Doesn't look like a job number (e.g. 267N2943, 26ON4465, 2670699). Check it before uploading.
+                  </p>
+                )}
               </div>
 
               <div>

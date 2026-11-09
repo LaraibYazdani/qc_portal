@@ -7,12 +7,11 @@
  *   npm run sf:org-lookup                 # company 1200 (BSPL)
  *   npm run sf:org-lookup -- --company 1100
  *
- * Needs SF_BASE_URL and SF_COMPANY_ID in .env, plus OAuth (SF_CLIENT_ID, SF_PRIVATE_KEY,
- * SF_ECADMIN_USER_ID; used when present) or basic auth (SF_API_USER, SF_API_PASS).
- * Force one with --auth oauth | --auth basic.
+ * Uses the SuccessFactors settings in .env (see src/lib/successfactors.ts).
  * Writes nothing and prints no personal data, only codes, names and counts.
  */
 import dotenv from 'dotenv';
+import { sfConfigured, sfGetAll as getAll } from '../lib/successfactors';
 
 dotenv.config();
 
@@ -22,59 +21,16 @@ const arg = (name: string, fallback: string) => {
 };
 const COMPANY = arg('company', '1200');
 
-const {
-  SF_BASE_URL, SF_COMPANY_ID, SF_API_USER, SF_API_PASS,
-  SF_CLIENT_ID, SF_PRIVATE_KEY, SF_ECADMIN_USER_ID,
-} = process.env;
-const BASE = (SF_BASE_URL ?? '').replace(/\/$/, '');
-const hasOAuth = !!(SF_CLIENT_ID && SF_PRIVATE_KEY && SF_ECADMIN_USER_ID);
-const hasBasic = !!(SF_API_USER && SF_API_PASS);
-const MODE = arg('auth', hasOAuth ? 'oauth' : 'basic');
-if (!BASE || !SF_COMPANY_ID || (MODE === 'oauth' ? !hasOAuth : !hasBasic)) {
-  console.error('Set SF_BASE_URL and SF_COMPANY_ID, plus either SF_CLIENT_ID/SF_PRIVATE_KEY/SF_ECADMIN_USER_ID (OAuth) '
-    + 'or SF_API_USER/SF_API_PASS (basic) in backend/.env.');
+if (!sfConfigured()) {
+  console.error('Set SF_BASE_URL and SF_COMPANY_ID, plus SF_CLIENT_ID/SF_PRIVATE_KEY/SF_ECADMIN_USER_ID (OAuth) in backend/.env.');
+  process.exit(1);
+}
+if (!/^[0-9A-Za-z]{1,10}$/.test(COMPANY)) {
+  console.error('--company must be a company code such as 1200');
   process.exit(1);
 }
 
-/** OAuth 2.0 SAML bearer: SuccessFactors issues an assertion for the service user, then trades it for a token. */
-async function oauthHeader(): Promise<string> {
-  const tokenUrl = `${BASE}/oauth/token`;
-  const idp = await fetch(`${BASE}/oauth/idp`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: SF_CLIENT_ID!, user_id: SF_ECADMIN_USER_ID!, token_url: tokenUrl, private_key: SF_PRIVATE_KEY! }),
-  });
-  const assertion = await idp.text();
-  if (!idp.ok) throw new Error(`${idp.status} from /oauth/idp: ${assertion.slice(0, 300)}`);
-  const tok = await fetch(tokenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:saml2-bearer',
-      client_id: SF_CLIENT_ID!, company_id: SF_COMPANY_ID!, assertion,
-    }),
-  });
-  const body = await tok.json().catch(() => ({})) as { access_token?: string; error_description?: string };
-  if (!tok.ok || !body.access_token) throw new Error(`${tok.status} from /oauth/token: ${body.error_description ?? 'no access_token'}`);
-  return `Bearer ${body.access_token}`;
-}
-
-let AUTH = 'Basic ' + Buffer.from(`${SF_API_USER}@${SF_COMPANY_ID}:${SF_API_PASS}`).toString('base64');
-
 type Row = Record<string, unknown>;
-
-async function getAll(path: string): Promise<Row[]> {
-  const rows: Row[] = [];
-  let url: string | null = BASE + path;
-  while (url) {
-    const res: Response = await fetch(url, { headers: { Authorization: AUTH, Accept: 'application/json' } });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${path.split('?')[0]}: ${(await res.text()).slice(0, 300)}`);
-    const body = await res.json() as { d: { results: Row[]; __next?: string } };
-    rows.push(...body.d.results);
-    url = body.d.__next ?? null;
-  }
-  return rows;
-}
 
 const nameOf = (r: Row) =>
   String(r.name ?? r.name_defaultValue ?? r.name_en_US ?? r.description ?? r.description_defaultValue ?? '').trim() || '(no name)';
@@ -106,8 +62,7 @@ function summarise(title: string, jobs: Row[], field: string, labels: Map<string
 }
 
 (async () => {
-  console.log(`SuccessFactors org structure for company ${COMPANY} (auth: ${MODE})`);
-  if (MODE === 'oauth') AUTH = await oauthHeader();
+  console.log(`SuccessFactors org structure for company ${COMPANY}`);
   const jobs = await getAll(
     `/odata/v2/EmpJob?$format=json&$filter=company eq '${COMPANY}'&$select=userId,businessUnit,division,costCenter,location,department`);
   if (!jobs.length) {

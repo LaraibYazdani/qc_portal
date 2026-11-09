@@ -43,7 +43,10 @@ export const Navbar: React.FC = () => {
               </>
             )}
             {['admin', 'company_admin'].includes(user.role) && (
-              <Link to="/admin" className={linkClass('/admin')}>Admin</Link>
+              <>
+                <Link to="/admin" className={linkClass('/admin')}>Admin</Link>
+                <Link to="/admin/users" className={linkClass('/admin/users')}>Users</Link>
+              </>
             )}
             {['operator', 'qc_supervisor'].includes(user.role) && (
               <Link to="/operator-view" className={linkClass('/operator-view')}>Search</Link>

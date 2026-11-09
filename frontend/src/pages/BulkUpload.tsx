@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAuth } from '../contexts/AuthContext.tsx';
+import { parseDesignFilename } from '../utils/jobNumber';
 
 const CHUNK_SIZE = 20;
 
@@ -9,6 +10,8 @@ interface ParsedFile {
   jobNumber: string | null;
   designName: string | null;
   valid: boolean;
+  unusual: boolean;
+  note?: string;
   error?: string;
 }
 
@@ -21,26 +24,8 @@ interface FileResult {
 }
 
 function parseFilename(file: File): ParsedFile {
-  const dotIndex = file.name.lastIndexOf('.');
-  const nameWithoutExt = dotIndex > 0 ? file.name.slice(0, dotIndex) : file.name;
-  const separatorIndex = nameWithoutExt.indexOf('_');
-
-  if (separatorIndex <= 0) {
-    return {
-      file,
-      jobNumber: null,
-      designName: null,
-      valid: false,
-      error: 'Does not match JOBNUMBER_DESIGNNAME.ext'
-    };
-  }
-
-  return {
-    file,
-    jobNumber: nameWithoutExt.slice(0, separatorIndex).toUpperCase(),
-    designName: nameWithoutExt.slice(separatorIndex + 1),
-    valid: true
-  };
+  const p = parseDesignFilename(file.name);
+  return { file, jobNumber: p.jobNumber, designName: p.designName, valid: !p.error, unusual: p.unusual, note: p.note, error: p.error };
 }
 
 export const BulkUpload: React.FC = () => {
@@ -49,9 +34,11 @@ export const BulkUpload: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [results, setResults] = useState<FileResult[] | null>(null);
+  const [allowUnusual, setAllowUnusual] = useState(false);
 
   const onDrop = (acceptedFiles: File[]) => {
     setResults(null);
+    setAllowUnusual(false);
     setParsedFiles(acceptedFiles.map(parseFilename));
   };
 
@@ -65,8 +52,10 @@ export const BulkUpload: React.FC = () => {
     maxSize: 20 * 1024 * 1024
   });
 
-  const validFiles = useMemo(() => parsedFiles.filter(p => p.valid), [parsedFiles]);
-  const invalidFiles = useMemo(() => parsedFiles.filter(p => !p.valid), [parsedFiles]);
+  // Unusual job numbers go up only once the uploader ticks "upload anyway".
+  const validFiles = useMemo(() => parsedFiles.filter(p => p.valid && (!p.unusual || allowUnusual)), [parsedFiles, allowUnusual]);
+  const invalidFiles = useMemo(() => parsedFiles.filter(p => !p.valid || (p.unusual && !allowUnusual)), [parsedFiles, allowUnusual]);
+  const unusualCount = useMemo(() => parsedFiles.filter(p => p.valid && p.unusual).length, [parsedFiles]);
 
   const handleUpload = async () => {
     if (validFiles.length === 0) return;
@@ -81,15 +70,16 @@ export const BulkUpload: React.FC = () => {
 
     const allResults: FileResult[] = invalidFiles.map(p => ({
       filename: p.file.name,
-      job_number: null,
-      design_name: null,
+      job_number: p.jobNumber,
+      design_name: p.designName,
       status: 'failed',
-      message: p.error || 'Invalid filename'
+      message: p.error || `${p.note} Not uploaded: tick "upload anyway" to confirm.`
     }));
 
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       const formData = new FormData();
+      if (allowUnusual) formData.append('allow_unusual', 'true');
       chunk.forEach(p => formData.append('designs', p.file));
 
       try {
@@ -201,10 +191,12 @@ export const BulkUpload: React.FC = () => {
                         <td className="p-2">{p.jobNumber ?? '—'}</td>
                         <td className="p-2">{p.designName ?? '—'}</td>
                         <td className="p-2">
-                          {p.valid ? (
-                            <span className="text-green-700">Ready</span>
-                          ) : (
+                          {!p.valid ? (
                             <span className="text-red-700">{p.error}</span>
+                          ) : p.unusual ? (
+                            <span className="text-amber-700">Check: {p.note}</span>
+                          ) : (
+                            <span className="text-green-700">Ready{p.note && <span className="text-gray-600"> ({p.note})</span>}</span>
                           )}
                         </td>
                       </tr>
@@ -212,6 +204,15 @@ export const BulkUpload: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              {unusualCount > 0 && (
+                <label className="flex items-start gap-2 mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
+                  <input type="checkbox" className="mt-0.5" checked={allowUnusual} onChange={e => setAllowUnusual(e.target.checked)} />
+                  <span>
+                    {unusualCount} file(s) have a job number that doesn't look like one (e.g. 267N2943).
+                    Upload anyway with the job numbers shown? Otherwise rename them and select them again.
+                  </span>
+                </label>
+              )}
             </div>
           )}
 

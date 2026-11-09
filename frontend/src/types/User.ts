@@ -31,6 +31,37 @@ export interface UserResponse {
   created_at: Date;
 }
 
+/** A user as listed in user management. */
+export interface ManagedUser extends UserResponse {
+  company_manual?: boolean;
+  sf_employee_id?: string | null;
+  auth_source?: 'local' | 'ias';
+  last_login_at?: string | null;
+  sf_job_title?: string | null;
+  sf_company_code?: string | null;
+  sf_business_unit?: string | null;
+  sf_synced_at?: string | null;
+}
+
+export interface SfLookup {
+  employee: {
+    userId: string; name: string; email: string | null; company: string | null;
+    businessUnit: string | null; businessUnitName: string | null; division: string | null; jobTitle: string | null;
+  };
+  company: { id: number; code: string; name: string } | null;
+  can_assign: boolean;
+  existing_user: ManagedUser | null;
+}
+
+export interface Company {
+  id: number;
+  parent_id: number | null;
+  code: string;
+  name: string;
+  sf_company_code: string | null;
+  is_active: number;
+}
+
 export interface LoginRequest {
   email: string;
   password: string;

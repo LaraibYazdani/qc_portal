@@ -8,6 +8,7 @@ import { authRoutes } from './routes/auth';
 import { jobRoutes } from './routes/jobs';
 import { userRoutes } from './routes/users';
 import { companyRoutes } from './routes/companies';
+import { iasRoutes } from './routes/ias';
 import { testConnection } from './config/database';
 
 dotenv.config();
@@ -49,6 +50,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // API routes
+app.use('/api/auth/ias', iasRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/users', userRoutes);

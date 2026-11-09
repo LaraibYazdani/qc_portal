@@ -234,10 +234,13 @@ export const Admin: React.FC = () => {
               <h3 className="font-semibold text-green-900">View My Jobs</h3>
               <p className="text-sm text-green-700 mt-1">Manage your uploads</p>
             </a>
-            <div className="block p-4 bg-purple-50 rounded-lg">
+            <a
+              href="/admin/users"
+              className="block p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
+            >
               <h3 className="font-semibold text-purple-900">User Management</h3>
-              <p className="text-sm text-purple-700 mt-1">Coming soon</p>
-            </div>
+              <p className="text-sm text-purple-700 mt-1">Approve sign-ins, add people from SuccessFactors, set roles</p>
+            </a>
           </div>
         </div>
       </div>

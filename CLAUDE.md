@@ -16,7 +16,8 @@ Phase 1 is live with BSPL › Corrugated Division's artwork; phase 2 adds the ph
 - **Backend**: Node.js + Express + TypeScript
 - **Frontend**: React + TypeScript + Tailwind CSS (Vite)
 - **Database**: MariaDB 10.4 in production (XAMPP), MySQL 8 compatible, via mysql2
-- **Auth**: JWT (bcryptjs for password hashing); SAP IAS planned
+- **Auth**: JWT session; email + password (bcryptjs) and SAP IAS (OpenID Connect, off until `IAS_ENABLED=true`)
+- **SuccessFactors**: OData, OAuth SAML bearer, read-only (`src/lib/successfactors.ts`)
 - **File Storage**: local disk, `backend/uploads/`, all access through `src/lib/storage.ts`
 - **Architecture**: REST API (backend) + SPA (frontend)
 
@@ -42,14 +43,23 @@ qc_portal/
 │       │   ├── companies.ts      # company tree, visibility scoping
 │       │   ├── audit.ts          # append-only audit log
 │       │   ├── storage.ts        # all file reads/writes (versioned design folders)
-│       │   └── sfCompanyResolver.ts  # SuccessFactors EmpJob → company (sub-company rules)
+│       │   ├── sfCompanyResolver.ts  # SuccessFactors EmpJob → company (sub-company rules)
+│       │   ├── successfactors.ts # SuccessFactors client (employee, business unit names; mock mode)
+│       │   ├── sfSync.ts         # place an employee, refresh a user from SuccessFactors
+│       │   ├── employeeSignIn.ts # SAP sign-in: find / link / register-as-pending
+│       │   ├── ias.ts            # SAP IAS OIDC: PKCE, ID token signature check, one-time codes
+│       │   ├── session.ts        # portal JWT
+│       │   └── jobNumber.ts      # job number format, bulk file name parsing (mirrored in frontend/src/utils)
 │       ├── models/               # User, Job types
 │       ├── routes/
-│       │   ├── auth.ts           # login, me, logout
+│       │   ├── auth.ts           # login, me, logout, config
+│       │   ├── ias.ts            # /api/auth/ias/start | callback | exchange
 │       │   ├── jobs.ts           # search, upload, bulk, versions, archive/restore
-│       │   ├── users.ts          # user management (company-scoped)
+│       │   ├── users.ts          # user management (company-scoped), add/sync from SuccessFactors
 │       │   └── companies.ts      # company tree, SuccessFactors mapping rules
-│       └── scripts/migrate.ts    # migration runner (npm run migrate)
+│       └── scripts/
+│           ├── migrate.ts        # migration runner (npm run migrate)
+│           └── sfOrgLookup.ts    # business units / divisions of a company (npm run sf:org-lookup)
 ├── frontend/
 │   └── src/
 │       ├── contexts/AuthContext.tsx  # JWT auth state
@@ -68,7 +78,7 @@ qc_portal/
 
 - **companies**: tree via `parent_id`. Top level = legal entities with `sf_company_code` (EmpJob.company: 1000 PL, 1100 PCL, 1200 BSPL, …). Sub-companies below them (e.g. BSPL-CORR Corrugated Division).
 - **company_sf_mappings**: rules placing a SuccessFactors employee in a company: company code + optional EmpJob field (`division`, `businessUnit`, `costCenter`, …) equals/prefix value. Most specific wins.
-- **users**: id, name, email, password (NULL for IAS users), role, company_id (NULL = group admin), sf_employee_id, status (active/pending/disabled), auth_source, last_login_at
+- **users**: id, name, email, password (NULL for IAS users), role, company_id (NULL = group admin), company_manual (1 = placed by hand, syncs keep it), sf_employee_id + SuccessFactors snapshot (sf_company_code, sf_business_unit, sf_division, sf_job_title, sf_synced_at), status (active/pending/disabled), auth_source, last_login_at
 - **jobs**: job_number unique per legal entity, company_id, legal_entity_id, po_number, design_name, image_path (= current version's display file), status (active/archived), archive fields, current_version_id
 - **design_versions**: every uploaded design per job (file_path, original_path, sha256, reference_status for the QC engine)
 - **audit_log**: append-only (DB triggers block UPDATE/DELETE)
@@ -111,6 +121,9 @@ A user sees their own company and every company below it in the tree.
 | `RATE_LIMIT_MAX` | No | Requests per IP per 15 min on /api, default `1000` |
 | `TRUST_PROXY` | No | `1` behind IIS / a reverse proxy |
 | `LEGACY_DEFAULT_COMPANY_CODE` | No | Company for uploads by users without a company, default `BSPL-CORR` |
+| `SF_BASE_URL`, `SF_COMPANY_ID`, `SF_CLIENT_ID`, `SF_PRIVATE_KEY`, `SF_ECADMIN_USER_ID` | For SAP / user management | SuccessFactors OAuth; `SF_MOCK_MODE=true` for test employees |
+| `IAS_ENABLED`, `IAS_ISSUER`, `IAS_CLIENT_ID`, `IAS_CLIENT_SECRET`, `IAS_REDIRECT_URI` | For SAP sign-in | Off unless `IAS_ENABLED=true`; see docs/RELEASE_MULTI_COMPANY.md |
+| `COOKIE_SECURE` | No | `true` on HTTPS (sign-in state cookie) |
 
 ---
 
@@ -140,3 +153,4 @@ Tests: `cd backend && npm test`.
 | 2026-04-13 | Fixed admin password hash | PHP bcrypt hash incompatible with bcryptjs — regenerated |
 | 2026-04-13 | Removed Aiven/SSL dependencies | Using local MySQL only |
 | 2026-11-08 | Multi-company foundation | Companies tree, design versions, archive instead of delete, audit log, migrations. See docs/RELEASE_MULTI_COMPANY.md |
+| 2026-11-09 | SuccessFactors users + SAP sign-in | Users page (approve, add from SuccessFactors, sync), SAP IAS sign-in (off by default), job number checks on upload. Migration 006 |

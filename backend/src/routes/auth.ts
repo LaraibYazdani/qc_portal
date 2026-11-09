@@ -1,13 +1,19 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
 import pool from '../config/database';
 import { UserResponse, LoginRequest, LoginResponse } from '../models/User';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { audit } from '../lib/audit';
+import { issueToken } from '../lib/session';
+import { iasEnabled } from '../lib/ias';
 
 const router = express.Router();
+
+// Which sign-in methods the login page should offer
+router.get('/config', (_req: express.Request, res: express.Response) => {
+  res.json({ success: true, ias_enabled: iasEnabled(), password_login: true });
+});
 
 // Login endpoint (email + password). Stays available alongside SAP IAS during the changeover.
 router.post('/login', [
@@ -45,11 +51,7 @@ router.post('/login', [
       });
     }
 
-    const token = jwt.sign(
-      { id: user.id, name: user.name, email: user.email, role: user.role },
-      process.env.JWT_SECRET!,
-      { expiresIn: (process.env.JWT_EXPIRES_IN || '24h') as any }
-    );
+    const token = issueToken(user);
 
     await pool.execute('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
     (req as any).user = user;

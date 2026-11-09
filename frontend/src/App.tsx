@@ -9,6 +9,7 @@ import { Upload } from './pages/Upload.tsx';
 import { BulkUpload } from './pages/BulkUpload.tsx';
 import { Admin } from './pages/Admin.tsx';
 import { MyJobs } from './pages/MyJobs.tsx';
+import { Users } from './pages/Users.tsx';
 import './App.css';
 
 function App() {
@@ -38,6 +39,12 @@ function App() {
             <Route path="/admin" element={
               <ProtectedRoute roles={['company_admin', 'admin']}>
                 <Admin />
+              </ProtectedRoute>
+            } />
+
+            <Route path="/admin/users" element={
+              <ProtectedRoute roles={['company_admin', 'admin']}>
+                <Users />
               </ProtectedRoute>
             } />
 

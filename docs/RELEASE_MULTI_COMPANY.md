@@ -26,6 +26,7 @@ Nothing else changes: same URLs, same pages, same login, artwork files stay at `
 | `003_jobs_versions.sql` | Jobs get company, status/archive fields, current version. Job numbers unique **per legal entity**. `design_versions` table: version 1 of every existing job points at its current file. Safety trigger fills the company if phase 1 code inserts a job. |
 | `004_audit_log.sql` | Append-only `audit_log` (database triggers refuse edits and deletes) + one entry recording the import |
 | `005_bspl_corrugated_mapping.sql` | SuccessFactors rule: company 1200 + `businessUnit` 10000020 ("Business Unit Corrugated Boxes") → BSPL › Corrugated Division. Recorded in `audit_log` |
+| `006_users_sf_profile.sql` | Users get their SuccessFactors snapshot (company code, business unit, division, job title, last sync) and `company_manual`. Phase 1 users are marked `company_manual = 1` so syncs keep them in Corrugated |
 
 Only additions. The phase 1 code can still run against the upgraded database.
 
@@ -43,9 +44,9 @@ Only additions. The phase 1 code can still run against the upgraded database.
 6. Migrate:
    ```
    cd backend
-   npm run migrate:prod -- --dry-run     # lists 001-005
+   npm run migrate:prod -- --dry-run     # lists 001-006
    npm run migrate:prod
-   npm run migrate:prod -- --status      # all five "applied"
+   npm run migrate:prod -- --status      # all six "applied"
    ```
 7. Start the API service.
 8. Check (see the checklist below).
@@ -66,6 +67,7 @@ rolling back the code alone is usually enough.
 
 Database (only if needed), newest first:
 ```
+npm run migrate:prod -- --down 006
 npm run migrate:prod -- --down 005
 npm run migrate:prod -- --down 004
 npm run migrate:prod -- --down 003
@@ -84,9 +86,33 @@ CREATE DATABASE qc_portal_rehearsal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicod
 set DB_NAME=qc_portal_rehearsal
 npm run migrate -- --status
 npm run migrate
-npm run migrate -- --down 005   (… down to 001, then migrate again: proves rollback works)
+npm run migrate -- --down 006   (… down to 001, then migrate again: proves rollback works)
 ```
 Then start the API against the rehearsal database and run the checklist above.
+
+## Turning on SAP sign-in (separate from the release)
+
+The release ships with SAP sign-in off; email + password keeps working. To turn it on:
+
+1. IAS admin console → the portal's application → OpenID Connect: add the redirect URI
+   `https://<portal domain>/api/auth/ias/callback`, exactly. Make sure the ID token carries
+   `employee_number` (the SuccessFactors employee ID).
+2. In `backend/.env`: `IAS_ISSUER`, `IAS_CLIENT_ID`, `IAS_CLIENT_SECRET`, `IAS_REDIRECT_URI`,
+   `COOKIE_SECURE=true` (HTTPS), then `IAS_ENABLED=true`. Restart the API.
+3. Behind IIS, `TRUST_PROXY=1` so the callback sees HTTPS and real client IPs.
+
+What happens on sign-in:
+- Known employee → their account is refreshed from SuccessFactors (name, email, company unless set
+  by hand) and they are signed in.
+- A phase 1 account with the same email → linked to the employee, nothing duplicated; its password
+  keeps working during the changeover.
+- Anyone else who is an active employee → an account **waiting for approval**, with no access, placed
+  by the SuccessFactors rules. Admins approve them in Users (role + company).
+- Not an active employee in SuccessFactors → refused; an existing account is disabled.
+
+The browser never sees the session token in a URL: SAP's callback hands it a one-time code
+(valid 60 seconds) that the login page trades for the session. Pending sign-ins and these codes
+are held in the API's memory, so the API must run as a single process (as today).
 
 ## Open decisions (settings, no code change needed)
 

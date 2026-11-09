@@ -11,6 +11,10 @@ import {
 } from '../lib/companies';
 import { storeDesignVersion, discardStoredDesign, StoredDesign } from '../lib/storage';
 import { audit } from '../lib/audit';
+import { normaliseJobNumber, isUsualJobNumber, parseDesignFilename } from '../lib/jobNumber';
+
+/** Multipart fields arrive as strings. */
+const confirmed = (v: unknown) => v === true || v === 'true' || v === '1';
 
 const router = express.Router();
 
@@ -105,6 +109,8 @@ async function saveDesign(opts: {
   file: Express.Multer.File;
   existingJobId?: number;
   changeNote?: string;
+  /** Recorded when the job number was unusual and confirmed, or taken from elsewhere in the file name. */
+  jobNumberNote?: string;
 }): Promise<{ jobId: number; versionNo: number }> {
   const { req, conn, company, file } = opts;
   const user = req.user!;
@@ -163,6 +169,7 @@ async function saveDesign(opts: {
       details: {
         job_number: opts.jobNumber, version: versionNo, file: stored.filePath,
         original_filename: file.originalname, sha256: stored.sha256, note: opts.changeNote ?? null,
+        ...(opts.jobNumberNote ? { job_number_note: opts.jobNumberNote } : {}),
       },
     }, conn);
 
@@ -303,7 +310,14 @@ router.post('/', authenticateToken, requireRole(UPLOADERS), upload.single('desig
       return res.status(400).json({ success: false, message: error });
     }
 
-    const jobNumber = String(req.body.job_number).toUpperCase();
+    const jobNumber = normaliseJobNumber(String(req.body.job_number));
+    const unusual = !isUsualJobNumber(jobNumber);
+    if (unusual && !confirmed(req.body.allow_unusual)) {
+      return res.status(400).json({
+        success: false, code: 'UNUSUAL_JOB_NUMBER',
+        message: `"${jobNumber}" doesn't look like a job number (e.g. 267N2943). Check it, or confirm to save it as it is.`,
+      });
+    }
     const existing = await findJobInLegalEntity(pool, company, jobNumber);
     if (existing) {
       return res.status(400).json({
@@ -319,6 +333,7 @@ router.post('/', authenticateToken, requireRole(UPLOADERS), upload.single('desig
       designName: req.body.design_name || null,
       poNumber: req.body.po_number || null,
       file: req.file!,
+      jobNumberNote: unusual ? 'Unusual job number confirmed by the uploader' : undefined,
     }));
 
     res.json({ success: true, message: 'Job created successfully', data: { id: result.jobId } });
@@ -332,7 +347,9 @@ router.post('/', authenticateToken, requireRole(UPLOADERS), upload.single('desig
 });
 
 // Bulk upload — uploaders and admins. Filenames must follow JOBNUMBER_DESIGNNAME.ext;
-// job number is everything before the first underscore, design name is everything after.
+// job number is everything before the first underscore, design name is everything after
+// (see lib/jobNumber.ts for the exceptions). Files whose job number looks unusual are
+// only saved when the form says allow_unusual=true (the uploader confirmed them).
 const BULK_MAX_FILES = 25;
 
 router.post('/bulk', authenticateToken, requireRole(UPLOADERS), upload.array('designs', BULK_MAX_FILES), async (req: AuthRequest, res: express.Response) => {
@@ -357,23 +374,24 @@ router.post('/bulk', authenticateToken, requireRole(UPLOADERS), upload.array('de
       message: string;
     }> = [];
 
-    for (const file of files) {
-      const nameWithoutExt = path.basename(file.originalname, path.extname(file.originalname));
-      const separatorIndex = nameWithoutExt.indexOf('_');
+    const allowUnusual = confirmed(req.body.allow_unusual);
 
-      if (separatorIndex <= 0) {
-        results.push({
-          filename: file.originalname,
-          job_number: null,
-          design_name: null,
-          status: 'failed',
-          message: 'Filename must follow JOBNUMBER_DESIGNNAME.ext, e.g. 267N2943_GMSAHOTMELTGLU_C[18].jpg'
-        });
+    for (const file of files) {
+      const parsed = parseDesignFilename(file.originalname);
+      if (parsed.error || !parsed.jobNumber) {
+        results.push({ filename: file.originalname, job_number: null, design_name: null, status: 'failed',
+          message: parsed.error ?? 'Invalid file name' });
         continue;
       }
-
-      const jobNumber = nameWithoutExt.slice(0, separatorIndex).toUpperCase();
-      const designName = nameWithoutExt.slice(separatorIndex + 1);
+      const jobNumber = parsed.jobNumber;
+      const designName = parsed.designName;
+      if (parsed.unusual && !allowUnusual) {
+        results.push({ filename: file.originalname, job_number: jobNumber, design_name: designName, status: 'failed',
+          message: `${parsed.note} Not uploaded: tick "upload anyway" to confirm.` });
+        continue;
+      }
+      const jobNumberNote = parsed.unusual ? `Unusual job number confirmed by the uploader. ${parsed.note}` : parsed.note;
+      const withNote = (msg: string) => (parsed.note && !parsed.unusual ? `${msg}. ${parsed.note}` : msg);
 
       try {
         const batchJobId = createdInThisBatch.get(jobNumber);
@@ -381,14 +399,14 @@ router.post('/bulk', authenticateToken, requireRole(UPLOADERS), upload.array('de
           // Duplicate within this same batch — the later file becomes a new version
           const { versionNo } = await withTransaction(conn => saveDesign({
             req, conn, company, jobNumber, designName, poNumber: null, file,
-            existingJobId: batchJobId, changeNote: 'Duplicate in the same bulk upload',
+            existingJobId: batchJobId, changeNote: 'Duplicate in the same bulk upload', jobNumberNote,
           }));
           results.push({
             filename: file.originalname,
             job_number: jobNumber,
             design_name: designName,
             status: 'updated',
-            message: `Saved as version ${versionNo} of a job created earlier in this batch`
+            message: withNote(`Saved as version ${versionNo} of a job created earlier in this batch`)
           });
           continue;
         }
@@ -406,7 +424,7 @@ router.post('/bulk', authenticateToken, requireRole(UPLOADERS), upload.array('de
         }
 
         const { jobId } = await withTransaction(conn => saveDesign({
-          req, conn, company, jobNumber, designName, poNumber: null, file,
+          req, conn, company, jobNumber, designName, poNumber: null, file, jobNumberNote,
         }));
         createdInThisBatch.set(jobNumber, jobId);
         results.push({
@@ -414,7 +432,7 @@ router.post('/bulk', authenticateToken, requireRole(UPLOADERS), upload.array('de
           job_number: jobNumber,
           design_name: designName,
           status: 'created',
-          message: 'Job created successfully'
+          message: withNote('Job created successfully')
         });
       } catch (fileError) {
         console.error('Bulk upload file error:', fileError);
