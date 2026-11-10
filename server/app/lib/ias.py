@@ -7,6 +7,12 @@ Compared with the reference portal this also:
  - never puts the portal session token in a URL: the callback hands the browser a
    one-time code (valid 60 s) that the login page trades for the token.
 
+The mobile app signs in the same way through the phone's browser: SAP returns to the
+API's callback, which sends the browser on to the app's own address (an allowed
+MOBILE_REDIRECT_URIS entry, e.g. packvision://auth) with the one-time code. That code
+is bound to a secret the app made when it started (PKCE, RFC 7636), so another app
+that intercepts the address cannot use it.
+
 Pending sign-ins and one-time codes live in memory. Run the API as ONE process
 (uvicorn without --workers); if that ever changes, move them to the database.
 """
@@ -14,7 +20,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
+import re
 import secrets
 import threading
 import time
@@ -100,15 +108,36 @@ def _b64url_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
-def start_sign_in() -> tuple[str, str]:
-    """Start a sign-in: (SAP URL to send the browser to, state to pin in a cookie)."""
+def s256(verifier: str) -> str:
+    return _b64url(hashlib.sha256(verifier.encode()).digest())
+
+
+# ── Mobile app ────────────────────────────────────────────────────────────────
+_CHALLENGE = re.compile(r"^[A-Za-z0-9_-]{43}$")   # base64url SHA-256, as RFC 7636 S256 sends it
+
+
+def mobile_redirect_allowed(uri: str) -> bool:
+    """Exact entries of MOBILE_REDIRECT_URIS, or a prefix when the entry ends in * (e.g. exp://* for Expo Go)."""
+    if not uri or len(uri) > 300 or any(c in uri for c in "\r\n\"'<> "):
+        return False
+    allowed = [a.strip() for a in (env("MOBILE_REDIRECT_URIS") or "packvision://auth").split(",") if a.strip()]
+    return any(uri.startswith(a[:-1]) if a.endswith("*") else uri == a for a in allowed)
+
+
+def valid_challenge(challenge: str) -> bool:
+    return bool(challenge) and bool(_CHALLENGE.match(challenge))
+
+
+def start_sign_in(app: Optional[dict] = None) -> tuple[str, str]:
+    """Start a sign-in: (SAP URL to send the browser to, state to pin in a cookie).
+    `app` = {"redirect": ..., "challenge": ...} when the mobile app started it."""
     with _lock:
         _sweep()
         if len(_pending) > 5000:
             raise IasError("busy", "Too many sign-ins in progress")
         state, nonce, verifier = _random(), _random(), _random()
-        _pending[state] = {"nonce": nonce, "verifier": verifier, "at": time.time()}
-    challenge = _b64url(hashlib.sha256(verifier.encode()).digest())
+        _pending[state] = {"nonce": nonce, "verifier": verifier, "app": app, "at": time.time()}
+    challenge = s256(verifier)
     query = urlencode({
         "response_type": "code", "client_id": env("IAS_CLIENT_ID"), "redirect_uri": env("IAS_REDIRECT_URI"),
         "scope": "openid profile email", "state": state, "nonce": nonce,
@@ -144,20 +173,33 @@ def finish_sign_in(state: str, code: str) -> dict:
                            nonce=p["nonce"], refetch=lambda: _get_jwks(e["jwks"], force=True))
 
 
-def create_handoff_code(user_id: int) -> str:
-    """One-time code the login page trades for a session."""
+def pending_app(state: str) -> Optional[dict]:
+    """The mobile app that started this sign-in, if any (looked up without using the sign-in up)."""
+    with _lock:
+        p = _pending.get(state)
+    return p.get("app") if p else None
+
+
+def create_handoff_code(user_id: int, challenge: Optional[str] = None) -> str:
+    """One-time code the login page (or the mobile app, with its secret) trades for a session."""
     with _lock:
         _sweep()
         code = _random()
-        _handoff[code] = {"user_id": user_id, "at": time.time()}
+        _handoff[code] = {"user_id": user_id, "challenge": challenge, "at": time.time()}
         return code
 
 
-def redeem_handoff_code(code: str) -> Optional[int]:
+def redeem_handoff_code(code: str, verifier: Optional[str] = None) -> Optional[int]:
+    """Used up on the first attempt, right or wrong. A code made for the app needs the app's secret."""
     with _lock:
         _sweep()
         h = _handoff.pop(code, None)
-    return h["user_id"] if h else None
+    if not h:
+        return None
+    if h.get("challenge"):
+        if not verifier or not hmac.compare_digest(s256(verifier), h["challenge"]):
+            return None
+    return h["user_id"]
 
 
 # ── ID token verification ─────────────────────────────────────────────────────

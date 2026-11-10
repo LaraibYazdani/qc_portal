@@ -16,6 +16,8 @@ Phase 1 is live with BSPL › Corrugated Division's artwork; phase 2 adds the ph
 
 - **API**: Python 3.12 + FastAPI (`server/`), plain SQL through PyMySQL (pooled by SQLAlchemy)
 - **Web app**: React 18 + TypeScript + Tailwind CSS (Vite) (`frontend/`)
+- **Mobile app**: Expo SDK 58 (React Native 0.88, Expo Router), iOS + Android (`mobile/`). A client of the same API,
+  no backend of its own; see mobile/README.md. Read mobile/AGENTS.md before changing it (Expo APIs change per SDK).
 - **Database**: MariaDB 10.4 in production (XAMPP), MySQL 8 compatible
 - **Auth**: JWT session; email + password (bcrypt) and SAP IAS (OpenID Connect, off until `IAS_ENABLED=true`)
 - **SuccessFactors**: OData, OAuth SAML bearer, read-only (`server/app/lib/successfactors.py`)
@@ -81,6 +83,11 @@ qc_portal/
 │   ├── pages/                     # Login, OperatorView (lookup), Upload, BulkUpload, MyJobs, Admin (overview), Users,
 │   │                              # Checks (print check history), References (supervisor review)
 │   └── utils/                     # api.ts (fetch + token), jobNumber.ts
+├── mobile/                        # Expo app (iOS + Android)
+│   ├── src/app/                   # routes: login, (app)/ behind sign-in: (tabs) Check/History/Account, job/[id],
+│   │                              # check/[jobId] (camera), inspection/[id]; +native-intent (SAP return link)
+│   ├── src/lib/                   # api (token, waits for session restore), auth (SAP PKCE), photo (resize + upload)
+│   └── src/components/            # ui (design system), Artwork (zoomable image), InspectionResult
 ├── backend/uploads/               # design files (phase 1 + new versioned folders); not in Git
 ├── sql/
 │   ├── migrations/                # numbered migrations + down/ rollbacks
@@ -150,6 +157,7 @@ A user sees their own company and every company below it in the tree.
 | `SF_BASE_URL`, `SF_COMPANY_ID`, `SF_CLIENT_ID`, `SF_PRIVATE_KEY`, `SF_ECADMIN_USER_ID` | For SAP / user management | SuccessFactors OAuth; `SF_MOCK_MODE=true` for test employees |
 | `IAS_ENABLED`, `IAS_ISSUER`, `IAS_CLIENT_ID`, `IAS_CLIENT_SECRET`, `IAS_REDIRECT_URI` | For SAP sign-in | Off unless `IAS_ENABLED=true`; see docs/RELEASE_MULTI_COMPANY.md |
 | `COOKIE_SECURE` | No | `true` on HTTPS (sign-in state cookie) |
+| `MOBILE_REDIRECT_URIS` | No | Where SAP sign-in may hand back to the mobile app, default `packvision://auth`; add `exp://*` only while developing with Expo Go |
 | `ENGINE_ENABLED` | No | `true` runs print checks (needs the new server); off, references still queue |
 | `ENGINE_WORKERS`, `ENGINE_REFERENCE_WORKERS` | No | Worker processes for checks (default 2) and reference preparation (default 1) |
 
@@ -170,6 +178,11 @@ The web app proxies `/api/*` and `/uploads/*` to `http://localhost:5000` (`front
 Database changes: `cd server; .venv\Scripts\python scripts\migrate.py --status`, then without `--status`.
 Tests: `cd server; .venv\Scripts\python -m pytest`. Type-check the web app: `cd frontend; npx tsc --noEmit`.
 
+Mobile app: `cd mobile; npx expo start` (set `EXPO_PUBLIC_API_URL` in `mobile/.env.local`), type-check with
+`npx tsc --noEmit`, config check with `npx expo-doctor`. If edits don't show up, restart with `--clear`
+(Metro's file watcher has missed changes on Windows). Layout rule learned the hard way: every `_layout.tsx`
+must always render its navigator. Returning `null`, a `<Redirect>` or extra siblings instead makes Expo Router loop.
+
 ---
 
 ## Changes Log
@@ -185,3 +198,4 @@ Tests: `cd server; .venv\Scripts\python -m pytest`. Type-check the web app: `cd 
 | 2026-11-09 | API moved to Python (FastAPI) + web app redesign | Same routes and responses; all 69 API checks pass unchanged. New design system and app shell |
 | 2026-11-10 | Renamed to PackVision | Domain packvision.packagesgroup.com, deploy guide + IIS config. Repo, folders and database keep the name qc_portal |
 | 2026-11-10 | Print checks (step 3) | Engine in the API (identical results to the PoC on all 48 simulated photos), DB-queued workers, reference review, Check a print, check history. Migration 007 |
+| 2026-11-10 | Mobile app (step 4) | Expo app in `mobile/`: SAP sign-in through the phone browser (`/api/auth/ias/mobile/start`, one-time code bound to the app's PKCE secret), lookup, camera check, results, history. No IAS change needed |

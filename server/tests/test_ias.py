@@ -7,7 +7,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from jwt.algorithms import RSAAlgorithm
 
-from app.lib.ias import IasError, verify_id_token
+from app.lib.ias import (IasError, create_handoff_code, mobile_redirect_allowed, redeem_handoff_code, s256,
+                         valid_challenge, verify_id_token)
 
 ISSUER, CLIENT, NONCE = "https://tenant.accounts.ondemand.com", "qc-portal-client", "nonce-123"
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -79,3 +80,41 @@ def test_reloads_keys_once_when_sap_rotated_them():
 
     assert verify_id_token(sign(GOOD, kid="key-2", key=OTHER), **OPTS, refetch=refetch)
     assert len(calls) == 1
+
+
+# ── Mobile app sign-in ────────────────────────────────────────────────────────
+VERIFIER = "app-secret-" + "x" * 40
+
+
+def test_web_codes_need_no_secret_and_work_once():
+    code = create_handoff_code(7)
+    assert redeem_handoff_code(code) == 7
+    assert redeem_handoff_code(code) is None
+
+
+def test_app_codes_need_the_apps_secret():
+    code = create_handoff_code(7, s256(VERIFIER))
+    assert redeem_handoff_code(code, VERIFIER) == 7
+
+
+@pytest.mark.parametrize("verifier", [None, "", "someone-elses-secret"])
+def test_app_codes_refuse_a_missing_or_wrong_secret_and_are_then_used_up(verifier):
+    code = create_handoff_code(7, s256(VERIFIER))
+    assert redeem_handoff_code(code, verifier) is None
+    assert redeem_handoff_code(code, VERIFIER) is None   # no second guess
+
+
+def test_challenge_format():
+    assert valid_challenge(s256(VERIFIER))
+    assert not valid_challenge("short")
+    assert not valid_challenge(s256(VERIFIER) + "=")
+
+
+def test_only_listed_app_addresses_are_allowed(monkeypatch):
+    monkeypatch.setenv("MOBILE_REDIRECT_URIS", "")
+    assert mobile_redirect_allowed("packvision://auth")          # default
+    assert not mobile_redirect_allowed("packvision://auth/other")
+    assert not mobile_redirect_allowed("https://evil.example.com/auth")
+    monkeypatch.setenv("MOBILE_REDIRECT_URIS", "packvision://auth, exp://*")
+    assert mobile_redirect_allowed("exp://192.168.1.20:8081/--/auth")
+    assert not mobile_redirect_allowed("exp://x/auth\r\nSet-Cookie: a=b")

@@ -1,0 +1,67 @@
+{
+  "expo": {
+    "name": "PackVision",
+    "slug": "packvision",
+    "scheme": "packvision",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F5F6F8",
+    "ios": {
+      "bundleIdentifier": "com.packagesgroup.packvision",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.packagesgroup.packvision",
+      "adaptiveIcon": {
+        "backgroundColor": "#2F45D6",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-web-browser",
+      "expo-secure-store",
+      "expo-image",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "PackVision uses the camera to photograph printed sheets and check them against the approved design.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "PackVision opens your photos so you can check a picture of a printed sheet you took earlier.",
+          "cameraPermission": "PackVision uses the camera to photograph printed sheets and check them against the approved design.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/android-icon-foreground.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#151A2C"
+        }
+      ]
+    ]
+  }
+}

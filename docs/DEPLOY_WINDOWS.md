@@ -38,7 +38,7 @@ npm run build                                # → frontend\build
 cd ..\server
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
-.venv\Scripts\python -m pytest -q            # 46 passed
+.venv\Scripts\python -m pytest -q            # 53 passed
 ```
 
 **Settings**: copy `server\.env.example` to `server\.env` and fill in:
@@ -121,7 +121,14 @@ On the new server:
 The engine runs as extra Python processes started by the service; there is nothing else to install.
 Reference and check files are kept under `UPLOAD_DIR\_engine\` (back it up with the uploads).
 
-## 6. Updating later
+## 6. Mobile app
+
+Nothing extra on the server: the app uses the same API at https://packvision.packagesgroup.com, and SAP
+sign-in from the app goes through the same IAS callback (no new redirect URI in the IAS console).
+`MOBILE_REDIRECT_URIS` can stay unset (default `packvision://auth`). Building and publishing the app:
+**mobile/README.md**.
+
+## 7. Updating later
 
 ```powershell
 cd D:\PackVision; git pull
