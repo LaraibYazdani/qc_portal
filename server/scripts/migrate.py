@@ -1,5 +1,5 @@
 """
-Database migrations for QC Portal (same table and rules as the earlier Node runner).
+Database migrations for PackVision (same table and rules as the earlier Node runner).
 
     python scripts/migrate.py                 apply every pending migration in sql/migrations
     python scripts/migrate.py --status        list applied / pending migrations

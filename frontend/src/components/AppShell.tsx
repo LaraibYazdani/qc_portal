@@ -10,7 +10,7 @@ import { ROLE_LABELS } from '../types/User';
 import { api, initials } from '../utils/api';
 import { Avatar, cx } from './ui';
 
-/** The portal's mark: a folded carton blank. Each copy gets its own gradient id (a hidden copy would blank the others). */
+/** PackVision's mark: a carton inside a viewfinder. Each copy gets its own gradient id (a hidden copy would blank the others). */
 export const BrandMark: React.FC<{ className?: string }> = ({ className = 'h-8 w-8' }) => {
   const id = `qc-mark-${useId().replace(/:/g, '')}`;
   return (
@@ -21,8 +21,10 @@ export const BrandMark: React.FC<{ className?: string }> = ({ className = 'h-8 w
       </linearGradient>
     </defs>
     <rect width="32" height="32" rx="9" fill={`url(#${id})`} />
-    <path d="M9 12.5 16 9l7 3.5v7L16 23l-7-3.5z" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinejoin="round" />
-    <path d="M9 12.5 16 16l7-3.5M16 16v7" fill="none" stroke="#fff" strokeOpacity=".7" strokeWidth="1.6" strokeLinejoin="round" />
+    <path d="M7 11V8.5A1.5 1.5 0 0 1 8.5 7H11M21 7h2.5A1.5 1.5 0 0 1 25 8.5V11M25 21v2.5a1.5 1.5 0 0 1-1.5 1.5H21M11 25H8.5A1.5 1.5 0 0 1 7 23.5V21"
+      fill="none" stroke="#fff" strokeOpacity=".75" strokeWidth="1.6" strokeLinecap="round" />
+    <path d="M11 13.5 16 11l5 2.5v5L16 21l-5-2.5z" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinejoin="round" />
+    <path d="M11 13.5 16 16l5-2.5M16 16v5" fill="none" stroke="#fff" strokeOpacity=".7" strokeWidth="1.6" strokeLinejoin="round" />
   </svg>
   );
 };
@@ -31,8 +33,10 @@ export const Brand: React.FC<{ dark?: boolean }> = ({ dark }) => (
   <span className="flex items-center gap-2.5">
     <BrandMark />
     <span className="leading-tight">
-      <span className={cx('block text-[15px] font-semibold tracking-tight', dark ? 'text-white' : 'text-ink-950')}>Packages QC</span>
-      <span className={cx('block text-[11px] font-medium uppercase tracking-[0.14em]', dark ? 'text-ink-400' : 'text-ink-500')}>Print assurance</span>
+      <span className={cx('block text-[16px] font-semibold tracking-tight', dark ? 'text-white' : 'text-ink-950')}>
+        Pack<span className={dark ? 'text-brand-300' : 'text-brand-600'}>Vision</span>
+      </span>
+      <span className={cx('block text-[11px] font-medium uppercase tracking-[0.14em]', dark ? 'text-ink-400' : 'text-ink-500')}>Packages group</span>
     </span>
   </span>
 );

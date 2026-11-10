@@ -109,7 +109,7 @@ export const Login: React.FC = () => {
             Every printed carton,<br /><span className="text-brand-300">true to its approved design.</span>
           </h1>
           <p className="mt-5 text-[15px] leading-relaxed text-ink-300">
-            The quality workspace for the Packages group: approved artwork, upload history and print checks in one place.
+            PackVision is the quality workspace for the Packages group: approved artwork, upload history and print checks in one place.
           </p>
           <ul className="mt-10 space-y-5">
             {POINTS.map(p => (
@@ -133,7 +133,7 @@ export const Login: React.FC = () => {
       <section className="flex items-center justify-center px-6 py-12 sm:px-10">
         <div className="w-full max-w-[380px] animate-fade-in">
           <div className="mb-10 lg:hidden"><BrandMark className="h-10 w-10" /></div>
-          <h2 className="text-2xl font-semibold tracking-tight text-ink-950">Sign in</h2>
+          <h2 className="text-2xl font-semibold tracking-tight text-ink-950">Sign in to PackVision</h2>
           <p className="mt-1.5 text-sm text-ink-500">
             {iasEnabled ? 'Use your SAP account, as for SuccessFactors.' : 'Use the email and password your administrator gave you.'}
           </p>

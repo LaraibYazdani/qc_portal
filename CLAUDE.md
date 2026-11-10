@@ -1,13 +1,13 @@
-# QC Portal — CLAUDE.md
+# PackVision — CLAUDE.md
 
 ## Project Overview
 
-**QC Portal** is an internal web app for quality control of carton printing artwork,
+**PackVision** (formerly QC Portal) is an internal web app for quality control of carton printing artwork,
 used across the Packages group of companies (multi-company, with sub-companies).
 Quality checkers look up designs by job or PO number. Uploaders (sales/pre-press) upload designs. Admins manage everything.
 Phase 1 is live with BSPL › Corrugated Division's artwork; phase 2 adds the photo-checking engine, SAP IAS login and a mobile app.
 
-**Deployment Target**: company Windows server. One Python process (uvicorn) serves the API and, with
+**Deployment Target**: https://packvision.packagesgroup.com on the company Windows server (IIS → uvicorn on 127.0.0.1:5100, see docs/DEPLOY_WINDOWS.md). One Python process (uvicorn) serves the API and, with
 `NODE_ENV=production`, the built React app. It must run as a single process: SAP sign-in state is held in memory.
 
 ---
@@ -168,3 +168,4 @@ Tests: `cd server; .venv\Scripts\python -m pytest`. Type-check the web app: `cd 
 | 2026-11-08 | Multi-company foundation | Companies tree, design versions, archive instead of delete, audit log, migrations. See docs/RELEASE_MULTI_COMPANY.md |
 | 2026-11-09 | SuccessFactors users + SAP sign-in | Users page (approve, add from SuccessFactors, sync), SAP IAS sign-in (off by default), job number checks on upload. Migration 006 |
 | 2026-11-09 | API moved to Python (FastAPI) + web app redesign | Same routes and responses; all 69 API checks pass unchanged. New design system and app shell |
+| 2026-11-10 | Renamed to PackVision | Domain packvision.packagesgroup.com, deploy guide + IIS config. Repo, folders and database keep the name qc_portal |

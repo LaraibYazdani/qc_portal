@@ -1,6 +1,6 @@
 # Release runbook: multi-company foundation
 
-Upgrades the live QC Portal (phase 1) to companies, sub-companies, design versions,
+Upgrades the live QC Portal (phase 1, now PackVision) to companies, sub-companies, design versions,
 archiving and an audit log, **without moving or removing anything that exists**.
 
 ## What changes for users
@@ -55,11 +55,9 @@ Only additions. The phase 1 code can still run against the upgraded database.
    .venv\Scripts\python scripts\migrate.py
    .venv\Scripts\python scripts\migrate.py --status      # all six "applied"
    ```
-7. Start the new API as a Windows service (one process; e.g. with NSSM):
-   ```
-   .venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 5000 --proxy-headers --forwarded-allow-ips=127.0.0.1
-   ```
-   (working directory `server\`; behind IIS keep `TRUST_PROXY=1`). Never add `--workers`: SAP sign-in state lives in memory.
+7. Start the PackVision service (`nssm start PackVision`): one uvicorn process on port 5100 behind the
+   IIS site for packvision.packagesgroup.com. Server set-up, IIS and the service: **docs/DEPLOY_WINDOWS.md**.
+   Never add `--workers`: SAP sign-in state lives in memory.
 8. Check (see the checklist below).
 
 ## Checks after release
@@ -106,10 +104,10 @@ Then start the API against the rehearsal database and run the checklist above.
 The release ships with SAP sign-in off; email + password keeps working. To turn it on:
 
 1. IAS admin console → the portal's application → OpenID Connect: add the redirect URI
-   `https://<portal domain>/api/auth/ias/callback`, exactly. Make sure the ID token carries
+   `https://packvision.packagesgroup.com/api/auth/ias/callback`, exactly. Make sure the ID token carries
    `employee_number` (the SuccessFactors employee ID).
-2. In `backend/.env`: `IAS_ISSUER`, `IAS_CLIENT_ID`, `IAS_CLIENT_SECRET`, `IAS_REDIRECT_URI`,
-   `COOKIE_SECURE=true` (HTTPS), then `IAS_ENABLED=true`. Restart the API.
+2. In `server/.env`: `IAS_ISSUER`, `IAS_CLIENT_ID`, `IAS_CLIENT_SECRET`, `IAS_REDIRECT_URI`,
+   `COOKIE_SECURE=true` (HTTPS), then `IAS_ENABLED=true`. Restart the service.
 3. Behind IIS, `TRUST_PROXY=1` so the callback sees HTTPS and real client IPs.
 
 What happens on sign-in:

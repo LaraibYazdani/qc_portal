@@ -1,5 +1,5 @@
 """
-QC Portal API (Python). Same routes and responses as the Node API it replaces.
+PackVision API (Python). Same routes and responses as the Node API it replaces.
 
 Run (one process: sign-in state is held in memory):
     cd server
@@ -26,7 +26,7 @@ from .config import CORS_ORIGIN, FRONTEND_BUILD, IS_PRODUCTION, NODE_ENV, PORT, 
 from .http import ApiError, ApiJSON, client_ip
 from .routes import auth, companies, ias, jobs, users
 
-app = FastAPI(title="QC Portal API", default_response_class=ApiJSON, docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="PackVision API", default_response_class=ApiJSON, docs_url=None, redoc_url=None, openapi_url=None)
 
 
 # ── Errors: same shapes the Node API returned ─────────────────────────────────
@@ -126,7 +126,7 @@ if IS_PRODUCTION and FRONTEND_BUILD.exists():
 
 @app.on_event("startup")
 def startup():
-    print(f"QC Portal API (Python) on port {PORT}, environment {NODE_ENV}, uploads in {UPLOAD_ROOT}")
+    print(f"PackVision API on port {PORT}, environment {NODE_ENV}, uploads in {UPLOAD_ROOT}")
     if db.ping():
         print("Database connection successful")
     else:

@@ -1,6 +1,6 @@
-# Packages QC Portal
+# PackVision
 
-The quality workspace for the Packages group: approved carton artwork by job number,
+PackVision (formerly QC Portal) is the quality workspace for the Packages group, at https://packvision.packagesgroup.com: approved carton artwork by job number,
 upload history with versions, user management through SAP SuccessFactors, and (next)
 photo checks of printed sheets against the approved design.
 
@@ -47,5 +47,6 @@ The design lookup at `/operator` also works without signing in, for shop-floor t
 ## More
 
 - `CLAUDE.md`: how the code is organised and the rules for changing it.
+- `docs/DEPLOY_WINDOWS.md`: server set-up (IIS, service, settings) for packvision.packagesgroup.com.
 - `docs/RELEASE_MULTI_COMPANY.md`: release, rollback and SAP sign-in runbook.
 - No accounts or passwords belong in this repository. Ask an administrator for access.
