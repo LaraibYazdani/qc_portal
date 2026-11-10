@@ -85,6 +85,40 @@ def store_design_version(buffer: bytes, mime: str, original_name: str, company_c
     )
 
 
+def path_for_url(url: str | None) -> Path | None:
+    """Disk path of a public /uploads/... URL, or None if it points anywhere outside the uploads folder."""
+    if not url or not url.startswith("/uploads/"):
+        return None
+    path = (UPLOAD_ROOT / url[len("/uploads/"):]).resolve()
+    root = UPLOAD_ROOT.resolve()
+    return path if path == root or root in path.parents else None
+
+
+@dataclass
+class StoredPhoto:
+    files_dir: str   # public URL of the check's folder (engine results are written next to the photo)
+    photo_path: str  # public URL of the photo
+    sha256: str
+
+
+def store_inspection_photo(buffer: bytes, mime: str) -> StoredPhoto:
+    """
+    Keep a photo for a print check in uploads/_engine/inspections/<yyyy>/<mm>/<random>/.
+    The random folder name keeps check photos from being found by guessing URLs.
+    """
+    import secrets
+    from datetime import datetime
+
+    now = datetime.now()
+    rel_dir = f"_engine/inspections/{now:%Y}/{now:%m}/{secrets.token_hex(10)}"
+    abs_dir = UPLOAD_ROOT / rel_dir
+    abs_dir.mkdir(parents=True, exist_ok=True)
+    name = "photo.png" if mime == "image/png" else "photo.jpg"
+    (abs_dir / name).write_bytes(buffer)
+    return StoredPhoto(files_dir=f"/uploads/{rel_dir}", photo_path=f"/uploads/{rel_dir}/{name}",
+                       sha256=hashlib.sha256(buffer).hexdigest())
+
+
 def discard_stored_design(stored: StoredDesign) -> None:
     """Remove a version folder written moments ago, when the database insert then failed."""
     try:

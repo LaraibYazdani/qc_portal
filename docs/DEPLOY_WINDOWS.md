@@ -38,7 +38,7 @@ npm run build                                # → frontend\build
 cd ..\server
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
-.venv\Scripts\python -m pytest -q            # 42 passed
+.venv\Scripts\python -m pytest -q            # 46 passed
 ```
 
 **Settings**: copy `server\.env.example` to `server\.env` and fill in:
@@ -106,7 +106,22 @@ When IT confirms the redirect URI is registered: set `IAS_ENABLED=true` in `serv
 `nssm restart PackVision`, and the login page shows **Continue with SAP**. Approve the first people
 under **Users → Waiting**.
 
-## 5. Updating later
+## 5. Photo checks (the print-check engine)
+
+Keep `ENGINE_ENABLED=false` on the current server: checking photos needs CPU and memory it doesn't have.
+Nothing is lost meanwhile: every uploaded design version is queued, and is prepared once the engine is on.
+
+On the new server:
+1. In `server\.env`: `ENGINE_ENABLED=true`, `ENGINE_WORKERS=2` (each check uses about 1 GB while it runs),
+   `ENGINE_REFERENCE_WORKERS=1`. `nssm restart PackVision`. The log shows "Print-check engine on".
+2. Sign in as a group admin → **Reference review** → **Prepare … older designs** queues phase 1's designs
+   (newest first; roughly 5–15 seconds each, in the background, never delaying checks).
+3. QC supervisors approve each design's reference in **Reference review** before it can be checked.
+
+The engine runs as extra Python processes started by the service; there is nothing else to install.
+Reference and check files are kept under `UPLOAD_DIR\_engine\` (back it up with the uploads).
+
+## 6. Updating later
 
 ```powershell
 cd D:\PackVision; git pull

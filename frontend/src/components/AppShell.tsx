@@ -2,11 +2,12 @@ import React, { Fragment, useEffect, useId, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Dialog, Transition } from '@headlessui/react';
 import {
-  ArrowRightOnRectangleIcon, ArrowUpTrayIcon, Bars3Icon, DocumentDuplicateIcon, FolderOpenIcon,
-  MagnifyingGlassIcon, Squares2X2Icon, UsersIcon, XMarkIcon,
+  ArrowRightOnRectangleIcon, ArrowUpTrayIcon, Bars3Icon, ClipboardDocumentCheckIcon, DocumentDuplicateIcon,
+  DocumentMagnifyingGlassIcon, FolderOpenIcon, MagnifyingGlassIcon, Squares2X2Icon, UsersIcon, XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../contexts/AuthContext.tsx';
 import { ROLE_LABELS } from '../types/User';
+import { CHECKER_ROLES, REVIEWER_ROLES } from '../types/Check';
 import { api, initials } from '../utils/api';
 import { Avatar, cx } from './ui';
 
@@ -46,18 +47,21 @@ interface NavItem { to: string; label: string; icon: React.ComponentType<{ class
 function useNav(): { section: string; items: NavItem[] }[] {
   const { user } = useAuth();
   const [pending, setPending] = useState(0);
+  const [toReview, setToReview] = useState(0);
   const isManager = !!user && ['admin', 'company_admin'].includes(user.role);
+  const isReviewer = !!user && REVIEWER_ROLES.includes(user.role);
   const location = useLocation();
 
   useEffect(() => {
-    if (!isManager) return;
-    api('/api/users?status=pending').then(r => r.ok && setPending(r.data.data.length));
-  }, [isManager, location.pathname]);
+    if (isManager) api('/api/users?status=pending').then(r => r.ok && setPending(r.data.data.length));
+    if (isReviewer) api('/api/references?status=needs_review').then(r => r.ok && setToReview(r.data.counts?.needs_review ?? 0));
+  }, [isManager, isReviewer, location.pathname]);
 
   if (!user) return [];
-  const sections: { section: string; items: NavItem[] }[] = [
-    { section: 'Quality', items: [{ to: '/operator-view', label: 'Design lookup', icon: MagnifyingGlassIcon }] },
-  ];
+  const quality: NavItem[] = [{ to: '/operator-view', label: 'Design lookup', icon: MagnifyingGlassIcon }];
+  if (CHECKER_ROLES.includes(user.role)) quality.push({ to: '/checks', label: 'Print checks', icon: ClipboardDocumentCheckIcon });
+  if (isReviewer) quality.push({ to: '/references', label: 'Reference review', icon: DocumentMagnifyingGlassIcon, badge: toReview || undefined });
+  const sections: { section: string; items: NavItem[] }[] = [{ section: 'Quality', items: quality }];
   if (['admin', 'company_admin', 'sales'].includes(user.role)) {
     sections.push({ section: 'Designs', items: [
       { to: '/upload', label: 'Upload design', icon: ArrowUpTrayIcon },

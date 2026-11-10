@@ -17,6 +17,7 @@ export interface JobResponse extends Job {
   current_version?: number | null;
   archived_at?: string | null;
   archive_reason?: string | null;
+  reference_status?: string | null;   // print-check reference of the current version
 }
 
 export interface CreateJobRequest {

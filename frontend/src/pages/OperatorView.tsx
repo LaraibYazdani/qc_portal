@@ -6,6 +6,7 @@ import { JobResponse } from '../types/Job';
 import { formatDate, isImage } from '../utils/api';
 import { isUsualJobNumber, normaliseJobNumber } from '../utils/jobNumber';
 import { Alert, Artwork, Badge, Button, Card, EmptyState, Input } from '../components/ui';
+import { PrintCheck } from '../components/PrintCheck';
 
 const RECENT_KEY = 'qc.recentLookups';
 const readRecent = (): string[] => {
@@ -112,7 +113,8 @@ export const OperatorView: React.FC = () => {
         )}
 
         {results?.map(job => (
-          <Card key={job.id} padded={false} className="overflow-hidden animate-fade-in">
+          <div key={job.id} className="space-y-4">
+          <Card padded={false} className="overflow-hidden animate-fade-in">
             <div className="grid lg:grid-cols-[1fr_320px]">
               <div className="art-bg flex min-h-[240px] items-center justify-center p-4 lg:min-h-[420px] lg:p-8">
                 {isImage(job.image_path) ? (
@@ -164,6 +166,8 @@ export const OperatorView: React.FC = () => {
               </aside>
             </div>
           </Card>
+          <PrintCheck jobId={job.id} jobNumber={job.job_number} />
+          </div>
         ))}
       </div>
     </div>

@@ -24,7 +24,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import db
 from .config import CORS_ORIGIN, FRONTEND_BUILD, IS_PRODUCTION, NODE_ENV, PORT, RATE_LIMIT_MAX, UPLOAD_ROOT
 from .http import ApiError, ApiJSON, client_ip
-from .routes import auth, companies, ias, jobs, users
+from .lib.engine_runner import runner as engine
+from .routes import auth, checks, companies, ias, jobs, users
 
 app = FastAPI(title="PackVision API", default_response_class=ApiJSON, docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -99,6 +100,7 @@ app.include_router(auth.router, prefix="/api/auth")
 app.include_router(jobs.router, prefix="/api/jobs")
 app.include_router(users.router, prefix="/api/users")
 app.include_router(companies.router, prefix="/api/companies")
+app.include_router(checks.router, prefix="/api")
 
 
 @app.get("/api/health")
@@ -129,5 +131,11 @@ def startup():
     print(f"PackVision API on port {PORT}, environment {NODE_ENV}, uploads in {UPLOAD_ROOT}")
     if db.ping():
         print("Database connection successful")
+        engine.start()  # only when ENGINE_ENABLED=true
     else:
         print("WARNING: Database connection failed. Some features may not work.")
+
+
+@app.on_event("shutdown")
+def shutdown():
+    engine.stop()

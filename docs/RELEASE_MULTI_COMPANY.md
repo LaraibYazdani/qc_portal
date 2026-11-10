@@ -27,6 +27,7 @@ Nothing else changes: same URLs, same pages, same login, artwork files stay at `
 | `004_audit_log.sql` | Append-only `audit_log` (database triggers refuse edits and deletes) + one entry recording the import |
 | `005_bspl_corrugated_mapping.sql` | SuccessFactors rule: company 1200 + `businessUnit` 10000020 ("Business Unit Corrugated Boxes") → BSPL › Corrugated Division. Recorded in `audit_log` |
 | `006_users_sf_profile.sql` | Users get their SuccessFactors snapshot (company code, business unit, division, job title, last sync) and `company_manual`. Phase 1 users are marked `company_manual = 1` so syncs keep them in Corrugated |
+| `007_inspections.sql` | Photo checks: design versions get engine reference fields (status, folder, panels/inks, review note); new `inspections` table (one row per photo checked, never deleted) |
 
 Only additions. The phase 1 code can still run against the upgraded database.
 
@@ -51,9 +52,9 @@ Only additions. The phase 1 code can still run against the upgraded database.
    Settings: the API reads `server/.env`, else the existing `backend/.env` (same names). Set `NODE_ENV=production`.
 6. Migrate:
    ```
-   .venv\Scripts\python scripts\migrate.py --dry-run     # lists 001-006
+   .venv\Scripts\python scripts\migrate.py --dry-run     # lists 001-007
    .venv\Scripts\python scripts\migrate.py
-   .venv\Scripts\python scripts\migrate.py --status      # all six "applied"
+   .venv\Scripts\python scripts\migrate.py --status      # all seven "applied"
    ```
 7. Start the PackVision service (`nssm start PackVision`): one uvicorn process on port 5100 behind the
    IIS site for packvision.packagesgroup.com. Server set-up, IIS and the service: **docs/DEPLOY_WINDOWS.md**.
@@ -76,6 +77,7 @@ the upgraded database, so rolling back the code alone is usually enough.
 
 Database (only if needed), newest first, from `server\`:
 ```
+.venv\Scripts\python scripts\migrate.py --down 007
 .venv\Scripts\python scripts\migrate.py --down 006
 .venv\Scripts\python scripts\migrate.py --down 005
 .venv\Scripts\python scripts\migrate.py --down 004
@@ -95,7 +97,7 @@ CREATE DATABASE qc_portal_rehearsal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicod
 set DB_NAME=qc_portal_rehearsal
 .venv\Scripts\python scripts\migrate.py --status
 .venv\Scripts\python scripts\migrate.py
-.venv\Scripts\python scripts\migrate.py --down 006   (… down to 001, then migrate again: proves rollback works)
+.venv\Scripts\python scripts\migrate.py --down 007   (… down to 001, then migrate again: proves rollback works)
 ```
 Then start the API against the rehearsal database and run the checklist above.
 

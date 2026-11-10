@@ -11,3 +11,10 @@ python-dotenv==1.0.1
 httpx==0.28.1
 Pillow==11.0.0
 pytest==8.3.4
+
+# Print-check engine (used only by its worker processes, and only with ENGINE_ENABLED=true).
+# Versions match the proof of concept the engine was tuned on.
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+scikit-image==0.24.0
+PyMuPDF==1.24.14

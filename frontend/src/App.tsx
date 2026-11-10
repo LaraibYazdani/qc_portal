@@ -10,6 +10,9 @@ import { BulkUpload } from './pages/BulkUpload.tsx';
 import { Admin } from './pages/Admin.tsx';
 import { MyJobs } from './pages/MyJobs.tsx';
 import { Users } from './pages/Users.tsx';
+import { Checks } from './pages/Checks.tsx';
+import { References } from './pages/References.tsx';
+import { CHECKER_ROLES, REVIEWER_ROLES } from './types/Check';
 
 const UPLOADERS = ['sales', 'company_admin', 'admin'];
 const MANAGERS = ['company_admin', 'admin'];
@@ -29,6 +32,8 @@ function App() {
           {/* Signed in */}
           <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
             <Route path="/operator-view" element={<OperatorView />} />
+            <Route path="/checks" element={<ProtectedRoute roles={CHECKER_ROLES}><Checks /></ProtectedRoute>} />
+            <Route path="/references" element={<ProtectedRoute roles={REVIEWER_ROLES}><References /></ProtectedRoute>} />
             <Route path="/upload" element={<ProtectedRoute roles={UPLOADERS}><Upload /></ProtectedRoute>} />
             <Route path="/bulk-upload" element={<ProtectedRoute roles={UPLOADERS}><BulkUpload /></ProtectedRoute>} />
             <Route path="/my-jobs" element={<ProtectedRoute roles={UPLOADERS}><MyJobs /></ProtectedRoute>} />

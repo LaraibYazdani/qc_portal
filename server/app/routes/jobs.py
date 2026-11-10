@@ -14,6 +14,7 @@ from ..lib.audit import audit
 from ..lib.companies import (can_see, find_company, find_company_by_code, legal_entity_of, list_companies,
                              scope_clause, visible_company_ids)
 from ..lib.job_number import is_usual_job_number, normalise_job_number, parse_design_filename
+from ..lib.engine_runner import runner as engine
 from ..lib.storage import StoredDesign, discard_stored_design, store_design_version
 from ..security import managers, signed_in, uploaders
 from ..validate import is_int
@@ -29,7 +30,7 @@ JOB_SELECT = """
   SELECT j.id, j.job_number, j.po_number, j.design_name, j.image_path, j.uploaded_by, j.created_at,
          j.company_id, j.status, j.archived_at, j.archive_reason,
          u.name AS uploaded_by_name, c.code AS company_code, c.name AS company_name,
-         v.version_no AS current_version
+         v.version_no AS current_version, v.reference_status
   FROM jobs j
   JOIN users u ON j.uploaded_by = u.id
   LEFT JOIN companies c ON j.company_id = c.id
@@ -38,7 +39,7 @@ JOB_SELECT = """
 
 _JOB_FIELDS = ("id", "job_number", "po_number", "design_name", "image_path", "uploaded_by", "uploaded_by_name",
                "created_at", "company_id", "company_code", "company_name", "status", "current_version",
-               "archived_at", "archive_reason")
+               "archived_at", "archive_reason", "reference_status")
 
 
 def to_job(row: dict) -> dict:
@@ -154,9 +155,11 @@ def save_design(request: Request, conn: db.Conn, company: dict, job_number: str,
                 (job_number, company["id"], entity["id"], po_number, design_name, stored.file_path, user["id"]))
 
         version_id = conn.execute(
+            # Every new design version is queued for the print-check engine (prepared once the engine is on)
             """INSERT INTO design_versions
-                 (job_id, version_no, file_path, original_path, original_filename, mime_type, file_size, sha256, uploaded_by, change_note)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                 (job_id, version_no, file_path, original_path, original_filename, mime_type, file_size, sha256, uploaded_by,
+                  change_note, reference_status)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'queued')""",
             (job_id, version_no, stored.file_path, stored.original_path, file.filename[:255], file.mime,
              stored.size, stored.sha256, user["id"], change_note))
 
@@ -172,6 +175,7 @@ def save_design(request: Request, conn: db.Conn, company: dict, job_number: str,
         if job_number_note:
             details["job_number_note"] = job_number_note
         audit(request, "job.create" if version_no == 1 else "job.new_version", "job", job_id, company["id"], details, conn)
+        engine.wake()
         return job_id, version_no
     except BaseException:
         if stored:
