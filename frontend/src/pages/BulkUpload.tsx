@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { useAuth } from '../contexts/AuthContext.tsx';
+import { ArrowPathIcon, CloudArrowUpIcon, DocumentDuplicateIcon } from '@heroicons/react/24/outline';
+import { api } from '../utils/api';
 import { parseDesignFilename } from '../utils/jobNumber';
+import { Alert, Badge, Button, Card, CardHeader, Checkbox, PageHeader, cx } from '../components/ui';
 
 const CHUNK_SIZE = 20;
 
@@ -23,242 +25,198 @@ interface FileResult {
   message: string;
 }
 
-function parseFilename(file: File): ParsedFile {
+const parse = (file: File): ParsedFile => {
   const p = parseDesignFilename(file.name);
   return { file, jobNumber: p.jobNumber, designName: p.designName, valid: !p.error, unusual: p.unusual, note: p.note, error: p.error };
-}
+};
+
+const RESULT_TONE = { created: 'success', updated: 'brand', failed: 'danger' } as const;
+const RESULT_LABEL = { created: 'Created', updated: 'New version', failed: 'Not uploaded' } as const;
 
 export const BulkUpload: React.FC = () => {
-  const { user } = useAuth();
-  const [parsedFiles, setParsedFiles] = useState<ParsedFile[]>([]);
+  const [files, setFiles] = useState<ParsedFile[]>([]);
+  const [allowUnusual, setAllowUnusual] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [results, setResults] = useState<FileResult[] | null>(null);
-  const [allowUnusual, setAllowUnusual] = useState(false);
-
-  const onDrop = (acceptedFiles: File[]) => {
-    setResults(null);
-    setAllowUnusual(false);
-    setParsedFiles(acceptedFiles.map(parseFilename));
-  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'image/jpeg': ['.jpg', '.jpeg'],
-      'image/png': ['.png'],
-      'application/pdf': ['.pdf']
-    },
-    maxSize: 20 * 1024 * 1024
+    onDrop: accepted => { setResults(null); setAllowUnusual(false); setFiles(accepted.map(parse)); },
+    accept: { 'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'], 'application/pdf': ['.pdf'] },
+    maxSize: 20 * 1024 * 1024,
   });
 
   // Unusual job numbers go up only once the uploader ticks "upload anyway".
-  const validFiles = useMemo(() => parsedFiles.filter(p => p.valid && (!p.unusual || allowUnusual)), [parsedFiles, allowUnusual]);
-  const invalidFiles = useMemo(() => parsedFiles.filter(p => !p.valid || (p.unusual && !allowUnusual)), [parsedFiles, allowUnusual]);
-  const unusualCount = useMemo(() => parsedFiles.filter(p => p.valid && p.unusual).length, [parsedFiles]);
+  const ready = useMemo(() => files.filter(p => p.valid && (!p.unusual || allowUnusual)), [files, allowUnusual]);
+  const held = useMemo(() => files.filter(p => !p.valid || (p.unusual && !allowUnusual)), [files, allowUnusual]);
+  const unusualCount = files.filter(p => p.valid && p.unusual).length;
+  const invalidCount = files.filter(p => !p.valid).length;
 
-  const handleUpload = async () => {
-    if (validFiles.length === 0) return;
+  const upload = async () => {
+    if (!ready.length) return;
     setUploading(true);
     setResults(null);
-
     const chunks: ParsedFile[][] = [];
-    for (let i = 0; i < validFiles.length; i += CHUNK_SIZE) {
-      chunks.push(validFiles.slice(i, i + CHUNK_SIZE));
-    }
-    setProgress({ done: 0, total: chunks.length });
+    for (let i = 0; i < ready.length; i += CHUNK_SIZE) chunks.push(ready.slice(i, i + CHUNK_SIZE));
+    setProgress({ done: 0, total: ready.length });
 
-    const allResults: FileResult[] = invalidFiles.map(p => ({
-      filename: p.file.name,
-      job_number: p.jobNumber,
-      design_name: p.designName,
-      status: 'failed',
-      message: p.error || `${p.note} Not uploaded: tick "upload anyway" to confirm.`
+    const all: FileResult[] = held.map(p => ({
+      filename: p.file.name, job_number: p.jobNumber, design_name: p.designName, status: 'failed',
+      message: p.error || `${p.note} Not uploaded: tick "upload anyway" to confirm.`,
     }));
-
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      const formData = new FormData();
-      if (allowUnusual) formData.append('allow_unusual', 'true');
-      chunk.forEach(p => formData.append('designs', p.file));
-
-      try {
-        const response = await fetch('/api/jobs/bulk', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-          body: formData
-        });
-        const data = await response.json();
-
-        if (data.success && Array.isArray(data.results)) {
-          allResults.push(...data.results);
-        } else {
-          chunk.forEach(p => allResults.push({
-            filename: p.file.name,
-            job_number: p.jobNumber,
-            design_name: p.designName,
-            status: 'failed',
-            message: data.message || 'Batch request failed'
-          }));
-        }
-      } catch {
-        chunk.forEach(p => allResults.push({
-          filename: p.file.name,
-          job_number: p.jobNumber,
-          design_name: p.designName,
-          status: 'failed',
-          message: 'Network error'
-        }));
-      }
-
-      setProgress({ done: i + 1, total: chunks.length });
+    let done = 0;
+    for (const chunk of chunks) {
+      const body = new FormData();
+      if (allowUnusual) body.append('allow_unusual', 'true');
+      chunk.forEach(p => body.append('designs', p.file));
+      const r = await api('/api/jobs/bulk', { method: 'POST', body });
+      if (r.ok && Array.isArray(r.data.results)) all.push(...r.data.results);
+      else chunk.forEach(p => all.push({ filename: p.file.name, job_number: p.jobNumber, design_name: p.designName, status: 'failed', message: r.message || 'Batch failed' }));
+      done += chunk.length;
+      setProgress({ done, total: ready.length });
     }
-
-    setResults(allResults);
-    setParsedFiles([]);
+    setResults(all);
+    setFiles([]);
     setUploading(false);
   };
 
-  const statusStyle = (status: FileResult['status']) => {
-    switch (status) {
-      case 'created': return 'text-green-700 bg-green-50';
-      case 'updated': return 'text-blue-700 bg-blue-50';
-      default: return 'text-red-700 bg-red-50';
-    }
+  const summary = results && {
+    created: results.filter(r => r.status === 'created').length,
+    updated: results.filter(r => r.status === 'updated').length,
+    failed: results.filter(r => r.status === 'failed').length,
   };
 
   return (
-    <div className="min-h-screen bg-blue-50">
-      <div className="max-w-5xl mx-auto p-6">
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold text-blue-900">Bulk Upload Designs</h1>
-            <div className="text-sm text-gray-600">
-              Logged in as: <span className="font-semibold">{user?.name}</span> ({user?.role})
+    <div>
+      <PageHeader eyebrow="Designs" title="Bulk upload" description="Upload many designs at once. The job number is read from each file name." />
+
+      <Card className="mb-6">
+        <div className="flex flex-col gap-5 md:flex-row md:items-center">
+          <div className="flex-1">
+            <h2 className="text-[15px] font-semibold text-ink-900">Name every file JOBNUMBER_DESIGNNAME</h2>
+            <p className="mt-1 text-sm text-ink-500">
+              Everything before the first underscore is the job number; everything after it is the design name.
+              If another code comes first, the job number is found further along and you'll see a note.
+            </p>
+          </div>
+          <div className="rounded-xl bg-ink-950 px-5 py-4 font-mono text-[13px] text-ink-300">
+            <span className="text-brand-300">267N2943</span><span className="text-ink-500">_</span><span className="text-white">GMSAHOTMELTGLU_C[18]</span><span className="text-ink-500">.jpg</span>
+            <div className="mt-1.5 font-sans text-[11px] text-ink-500">
+              <span className="text-brand-300">job number</span> · <span className="text-white">design name</span>
             </div>
           </div>
+        </div>
+      </Card>
 
-          {/* Naming convention shown up front, before any files are selected */}
-          <div className="mb-6 p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-900">
-            <p className="font-bold mb-1">File naming requirement</p>
-            <p className="text-sm mb-2">
-              Every file must be named <span className="font-mono font-semibold">JOBNUMBER_DESIGNNAME.ext</span> —
-              everything before the first underscore becomes the Job Number, everything after it becomes the Design Name.
-            </p>
-            <p className="text-sm">
-              Example: <span className="font-mono">267N2943_GMSAHOTMELTGLU_C[18].jpg</span> → Job Number{' '}
-              <span className="font-semibold">267N2943</span>, Design Name{' '}
-              <span className="font-semibold">GMSAHOTMELTGLU_C[18]</span>
-            </p>
-            <p className="text-sm mt-2">
-              Files that don't follow this convention, or whose job number already exists, will be rejected —
-              you'll see exactly which files failed and why after uploading.
-            </p>
+      {!files.length && !uploading && (
+        <div {...getRootProps()} className={cx('mb-6 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed bg-white px-6 py-14 text-center transition-colors',
+          isDragActive ? 'border-brand-400 bg-brand-50/60' : 'border-ink-200 hover:border-ink-300')}>
+          <input {...getInputProps()} />
+          <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 ring-1 ring-brand-100">
+            <CloudArrowUpIcon className="h-7 w-7 text-brand-600" />
+          </span>
+          <p className="text-[15px] font-medium text-ink-900">{isDragActive ? 'Drop the files here' : 'Drop design files here'}</p>
+          <p className="mt-1 text-sm text-ink-500">or <span className="font-medium text-brand-700">browse</span> · JPG, PNG or PDF, up to 20 MB each</p>
+        </div>
+      )}
+
+      {(files.length > 0 || uploading) && (
+        <Card padded={false} className="mb-6">
+          <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-5 py-4">
+            <h2 className="text-[15px] font-semibold text-ink-900">{uploading ? 'Uploading…' : `${files.length} file${files.length === 1 ? '' : 's'} selected`}</h2>
+            {!uploading && (
+              <div className="flex flex-wrap gap-2">
+                <Badge tone="success" dot>{files.filter(p => p.valid && !p.unusual).length} ready</Badge>
+                {unusualCount > 0 && <Badge tone="warning" dot>{unusualCount} to check</Badge>}
+                {invalidCount > 0 && <Badge tone="danger" dot>{invalidCount} can't be used</Badge>}
+              </div>
+            )}
+            {!uploading && <Button size="sm" variant="ghost" icon={ArrowPathIcon} className="ml-auto" onClick={() => setFiles([])}>Choose other files</Button>}
           </div>
 
-          <div
-            {...getRootProps()}
-            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors mb-6 ${
-              isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
-            }`}
-          >
-            <input {...getInputProps()} />
-            <p className="text-lg text-gray-600">
-              {isDragActive ? 'Drop the files here...' : 'Drag & drop design files here, or click to select (up to ~100 at once)'}
-            </p>
-            <p className="text-sm text-gray-500 mt-2">Supported formats: JPG, PNG, PDF (max 20MB each)</p>
-          </div>
-
-          {parsedFiles.length > 0 && (
-            <div className="mb-6">
-              <h2 className="text-lg font-bold text-gray-800 mb-2">
-                {parsedFiles.length} file(s) selected — {validFiles.length} valid, {invalidFiles.length} will be rejected
-              </h2>
-              <div className="max-h-80 overflow-y-auto border border-gray-200 rounded-lg">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-100 sticky top-0">
-                    <tr>
-                      <th className="text-left p-2">Filename</th>
-                      <th className="text-left p-2">Job Number</th>
-                      <th className="text-left p-2">Design Name</th>
-                      <th className="text-left p-2">Status</th>
+          {uploading && progress ? (
+            <div className="px-5 py-8">
+              <div className="h-2 overflow-hidden rounded-full bg-ink-100">
+                <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+              </div>
+              <p className="tabular mt-3 text-sm text-ink-500">{progress.done} of {progress.total} uploaded</p>
+            </div>
+          ) : (
+            <>
+              <div className="max-h-[420px] overflow-y-auto scroll-thin">
+                <table className="min-w-full text-sm">
+                  <thead className="sticky top-0 bg-white/95 backdrop-blur">
+                    <tr className="text-left text-xs text-ink-500">
+                      <th className="px-5 py-2.5 font-medium">File</th>
+                      <th className="px-3 py-2.5 font-medium">Job number</th>
+                      <th className="px-3 py-2.5 font-medium">Design name</th>
+                      <th className="px-5 py-2.5 font-medium">Status</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {parsedFiles.map((p, idx) => (
-                      <tr key={idx} className="border-t border-gray-100">
-                        <td className="p-2 font-mono">{p.file.name}</td>
-                        <td className="p-2">{p.jobNumber ?? '—'}</td>
-                        <td className="p-2">{p.designName ?? '—'}</td>
-                        <td className="p-2">
-                          {!p.valid ? (
-                            <span className="text-red-700">{p.error}</span>
-                          ) : p.unusual ? (
-                            <span className="text-amber-700">Check: {p.note}</span>
-                          ) : (
-                            <span className="text-green-700">Ready{p.note && <span className="text-gray-600"> ({p.note})</span>}</span>
-                          )}
+                  <tbody className="divide-y divide-ink-100">
+                    {files.map((p, i) => (
+                      <tr key={i}>
+                        <td className="max-w-[16rem] truncate px-5 py-2.5 font-mono text-[12.5px] text-ink-600">{p.file.name}</td>
+                        <td className="job-number px-3 py-2.5 font-semibold text-ink-900">{p.jobNumber ?? '—'}</td>
+                        <td className="max-w-[16rem] truncate px-3 py-2.5 text-ink-600">{p.designName ?? '—'}</td>
+                        <td className="px-5 py-2.5">
+                          {!p.valid ? <span className="text-[13px] text-red-600">{p.error}</span>
+                            : p.unusual ? <span className="text-[13px] text-amber-700">{p.note}</span>
+                              : <span className="text-[13px] text-emerald-700">Ready{p.note && <span className="text-ink-500"> · {p.note}</span>}</span>}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {unusualCount > 0 && (
-                <label className="flex items-start gap-2 mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
-                  <input type="checkbox" className="mt-0.5" checked={allowUnusual} onChange={e => setAllowUnusual(e.target.checked)} />
-                  <span>
-                    {unusualCount} file(s) have a job number that doesn't look like one (e.g. 267N2943).
-                    Upload anyway with the job numbers shown? Otherwise rename them and select them again.
-                  </span>
-                </label>
-              )}
-            </div>
+              <div className="flex flex-col gap-4 border-t border-ink-100 px-5 py-4 md:flex-row md:items-center">
+                {unusualCount > 0 ? (
+                  <Checkbox checked={allowUnusual} onChange={setAllowUnusual} className="flex-1">
+                    Upload the {unusualCount} file{unusualCount === 1 ? '' : 's'} with an unusual job number anyway, as shown.
+                    <span className="block text-xs text-ink-500">Otherwise rename them and select them again.</span>
+                  </Checkbox>
+                ) : <span className="flex-1" />}
+                <Button size="lg" icon={DocumentDuplicateIcon} disabled={!ready.length} onClick={upload}>
+                  Upload {ready.length} design{ready.length === 1 ? '' : 's'}
+                </Button>
+              </div>
+            </>
           )}
+        </Card>
+      )}
 
-          <button
-            onClick={handleUpload}
-            disabled={uploading || validFiles.length === 0}
-            className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
-          >
-            {uploading
-              ? `Uploading batch ${progress?.done ?? 0} of ${progress?.total ?? 0}...`
-              : `Upload ${validFiles.length} Design(s)`}
-          </button>
-        </div>
-
-        {results && (
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">Results</h2>
-            <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-100 sticky top-0">
-                  <tr>
-                    <th className="text-left p-2">Filename</th>
-                    <th className="text-left p-2">Job Number</th>
-                    <th className="text-left p-2">Status</th>
-                    <th className="text-left p-2">Message</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((r, idx) => (
-                    <tr key={idx} className="border-t border-gray-100">
-                      <td className="p-2 font-mono">{r.filename}</td>
-                      <td className="p-2">{r.job_number ?? '—'}</td>
-                      <td className="p-2">
-                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${statusStyle(r.status)}`}>
-                          {r.status}
-                        </span>
-                      </td>
-                      <td className="p-2">{r.message}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {results && summary && (
+        <Card padded={false} className="animate-fade-in">
+          <div className="px-5 pt-5">
+            <CardHeader title="Upload results" actions={<Button size="sm" variant="secondary" onClick={() => setResults(null)}>Upload more</Button>} />
           </div>
-        )}
-      </div>
+          <div className="grid grid-cols-3 gap-px border-y border-ink-100 bg-ink-100">
+            {([['Created', summary.created, 'text-emerald-700'], ['New versions', summary.updated, 'text-brand-700'], ['Not uploaded', summary.failed, 'text-red-600']] as const).map(([label, n, color]) => (
+              <div key={label} className="bg-white px-5 py-4">
+                <p className="text-xs text-ink-500">{label}</p>
+                <p className={cx('tabular mt-1 text-2xl font-semibold', n ? color : 'text-ink-300')}>{n}</p>
+              </div>
+            ))}
+          </div>
+          {summary.failed > 0 && (
+            <Alert tone="warning" className="m-5 mb-0">Files that weren't uploaded are listed first with the reason. Fix them and upload them again.</Alert>
+          )}
+          <div className="max-h-[480px] overflow-y-auto scroll-thin p-2">
+            <table className="min-w-full text-sm">
+              <tbody className="divide-y divide-ink-100">
+                {[...results].sort((a, b) => (a.status === 'failed' ? -1 : 0) - (b.status === 'failed' ? -1 : 0)).map((r, i) => (
+                  <tr key={i}>
+                    <td className="max-w-[16rem] truncate px-3 py-2.5 font-mono text-[12.5px] text-ink-600">{r.filename}</td>
+                    <td className="job-number px-3 py-2.5 font-semibold text-ink-900">{r.job_number ?? '—'}</td>
+                    <td className="px-3 py-2.5"><Badge tone={RESULT_TONE[r.status]}>{RESULT_LABEL[r.status]}</Badge></td>
+                    <td className="px-3 py-2.5 text-[13px] text-ink-600">{r.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </div>
   );
 };

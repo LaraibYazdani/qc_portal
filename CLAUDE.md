@@ -7,26 +7,32 @@ used across the Packages group of companies (multi-company, with sub-companies).
 Quality checkers look up designs by job or PO number. Uploaders (sales/pre-press) upload designs. Admins manage everything.
 Phase 1 is live with BSPL › Corrugated Division's artwork; phase 2 adds the photo-checking engine, SAP IAS login and a mobile app.
 
-**Deployment Target**: company Windows server (Node.js backend serving the built React frontend)
+**Deployment Target**: company Windows server. One Python process (uvicorn) serves the API and, with
+`NODE_ENV=production`, the built React app. It must run as a single process: SAP sign-in state is held in memory.
 
 ---
 
 ## Tech Stack
 
-- **Backend**: Node.js + Express + TypeScript
-- **Frontend**: React + TypeScript + Tailwind CSS (Vite)
-- **Database**: MariaDB 10.4 in production (XAMPP), MySQL 8 compatible, via mysql2
-- **Auth**: JWT session; email + password (bcryptjs) and SAP IAS (OpenID Connect, off until `IAS_ENABLED=true`)
-- **SuccessFactors**: OData, OAuth SAML bearer, read-only (`src/lib/successfactors.ts`)
-- **File Storage**: local disk, `backend/uploads/`, all access through `src/lib/storage.ts`
-- **Architecture**: REST API (backend) + SPA (frontend)
+- **API**: Python 3.12 + FastAPI (`server/`), plain SQL through PyMySQL (pooled by SQLAlchemy)
+- **Web app**: React 18 + TypeScript + Tailwind CSS (Vite) (`frontend/`)
+- **Database**: MariaDB 10.4 in production (XAMPP), MySQL 8 compatible
+- **Auth**: JWT session; email + password (bcrypt) and SAP IAS (OpenID Connect, off until `IAS_ENABLED=true`)
+- **SuccessFactors**: OData, OAuth SAML bearer, read-only (`server/app/lib/successfactors.py`)
+- **File Storage**: local disk, `backend/uploads/` (phase 1's files), all access through `server/app/lib/storage.py`
+- The vision engine (photo checks) joins as Python code in the same app; heavy work runs in worker processes, never in a request.
+
+The API kept every route and response of the earlier Node/Express API, so the web app and test scripts are unchanged.
+The Node code is in Git history (branch `feature/multi-company-foundation`).
 
 ## Rules for changes
 
 - **Never delete records or files.** Jobs are archived, users disabled, designs versioned.
-- **Every change that matters goes to `audit_log`** via `src/lib/audit.ts`, in the same transaction.
-- **Every query on jobs/users is scoped by company** with `visibleCompanyIds()` / `scopeClause()` from `src/lib/companies.ts`.
+- **Every change that matters goes to `audit_log`** via `app/lib/audit.py`, in the same transaction (`conn=`).
+- **Every query on jobs/users is scoped by company** with `visible_company_ids()` / `scope_clause()` from `app/lib/companies.py`.
 - **Schema changes only through numbered migrations** in `sql/migrations/` with a rollback file in `sql/migrations/down/`. Never edit an applied migration.
+- **SQL uses `%s` placeholders** (PyMySQL): write a literal `%` as `%%` in a query that has parameters.
+- **Keep JSON shapes** the web app relies on: `{ success, data | message }`, validation errors as `{ errors: [{ msg, path }] }`.
 
 ---
 
@@ -34,55 +40,65 @@ Phase 1 is live with BSPL › Corrugated Division's artwork; phase 2 adds the ph
 
 ```
 qc_portal/
-├── backend/
-│   └── src/
-│       ├── index.ts              # Express app entry point (port 5000)
-│       ├── config/database.ts    # mysql2 connection pool
-│       ├── middleware/auth.ts    # JWT check + loads the user from the DB on every request
-│       ├── lib/
-│       │   ├── companies.ts      # company tree, visibility scoping
-│       │   ├── audit.ts          # append-only audit log
-│       │   ├── storage.ts        # all file reads/writes (versioned design folders)
-│       │   ├── sfCompanyResolver.ts  # SuccessFactors EmpJob → company (sub-company rules)
-│       │   ├── successfactors.ts # SuccessFactors client (employee, business unit names; mock mode)
-│       │   ├── sfSync.ts         # place an employee, refresh a user from SuccessFactors
-│       │   ├── employeeSignIn.ts # SAP sign-in: find / link / register-as-pending
-│       │   ├── ias.ts            # SAP IAS OIDC: PKCE, ID token signature check, one-time codes
-│       │   ├── session.ts        # portal JWT
-│       │   └── jobNumber.ts      # job number format, bulk file name parsing (mirrored in frontend/src/utils)
-│       ├── models/               # User, Job types
-│       ├── routes/
-│       │   ├── auth.ts           # login, me, logout, config
-│       │   ├── ias.ts            # /api/auth/ias/start | callback | exchange
-│       │   ├── jobs.ts           # search, upload, bulk, versions, archive/restore
-│       │   ├── users.ts          # user management (company-scoped), add/sync from SuccessFactors
-│       │   └── companies.ts      # company tree, SuccessFactors mapping rules
-│       └── scripts/
-│           ├── migrate.ts        # migration runner (npm run migrate)
-│           └── sfOrgLookup.ts    # business units / divisions of a company (npm run sf:org-lookup)
-├── frontend/
-│   └── src/
-│       ├── contexts/AuthContext.tsx  # JWT auth state
-│       └── ...pages and components
+├── server/                        # Python API
+│   ├── app/
+│   │   ├── main.py                # FastAPI app: middleware, error shapes, routes, static files
+│   │   ├── config.py              # settings (.env: server/.env, else backend/.env)
+│   │   ├── db.py                  # pooled PyMySQL: db.all / one / execute, transaction()
+│   │   ├── http.py                # JSON response, ApiError / fail() / invalid(), body + client IP helpers
+│   │   ├── security.py            # JWT, current user (reloaded every request), role dependencies
+│   │   ├── validate.py            # small request checks
+│   │   ├── lib/
+│   │   │   ├── companies.py       # company tree, visibility scoping
+│   │   │   ├── audit.py           # append-only audit log
+│   │   │   ├── storage.py         # all file reads/writes (versioned design folders)
+│   │   │   ├── sf_resolver.py     # SuccessFactors EmpJob → company (sub-company rules)
+│   │   │   ├── successfactors.py  # SuccessFactors client (employee, business unit names; mock mode)
+│   │   │   ├── sf_sync.py         # place an employee, refresh a user from SuccessFactors
+│   │   │   ├── employee_sign_in.py # SAP sign-in: find / link / register-as-pending
+│   │   │   ├── ias.py             # SAP IAS OIDC: PKCE, ID token signature check, one-time codes
+│   │   │   └── job_number.py      # job number format, bulk file name parsing (mirrored in frontend/src/utils)
+│   │   └── routes/                # auth, ias, jobs, users, companies
+│   ├── scripts/
+│   │   ├── migrate.py             # migration runner (--status, --dry-run, --down NNN)
+│   │   └── sf_org_lookup.py       # business units / divisions of a company in SuccessFactors
+│   ├── tests/                     # pytest
+│   ├── requirements.txt
+│   └── .env.example
+├── frontend/src/
+│   ├── components/ui.tsx          # design system: Button, Input, Card, Badge, Alert, Modal, Stat, Thumb, Artwork…
+│   ├── components/AppShell.tsx    # sidebar layout (role-based nav), public layout, brand mark
+│   ├── components/DesignPreview.tsx # artwork + details + version history dialog
+│   ├── contexts/AuthContext.tsx   # session, SAP one-time code exchange
+│   ├── pages/                     # Login, OperatorView (lookup), Upload, BulkUpload, MyJobs, Admin (overview), Users
+│   └── utils/                     # api.ts (fetch + token), jobNumber.ts
+├── backend/uploads/               # design files (phase 1 + new versioned folders); not in Git
 ├── sql/
-│   ├── migrations/              # numbered migrations + down/ rollbacks
-│   └── schema.sql               # phase 1 schema (fresh installs: run it, then npm run migrate)
-├── docs/RELEASE_MULTI_COMPANY.md  # release + rollback runbook
-├── .env                         # Local dev env vars (never committed)
-└── .env.example                 # Documents all required env vars
+│   ├── migrations/                # numbered migrations + down/ rollbacks
+│   └── schema.sql                 # phase 1 schema (fresh installs: run it, then migrate)
+└── docs/RELEASE_MULTI_COMPANY.md  # release + rollback runbook
 ```
+
+---
+
+## Design (web app)
+
+Ink sidebar (`ink-950`), canvas background, white cards, one accent (`brand-600`); green/red reserved for pass/fail.
+Inter (bundled via `@fontsource-variable/inter`, works offline), job numbers in monospace (`.job-number`).
+Build pages from `components/ui.tsx`; don't hand-style buttons, inputs or alerts. Use `Modal` instead of
+`window.confirm/prompt`. Images go through `Artwork`/`Thumb` (graceful fallback when a file is missing).
 
 ---
 
 ## Database Schema
 
 - **companies**: tree via `parent_id`. Top level = legal entities with `sf_company_code` (EmpJob.company: 1000 PL, 1100 PCL, 1200 BSPL, …). Sub-companies below them (e.g. BSPL-CORR Corrugated Division).
-- **company_sf_mappings**: rules placing a SuccessFactors employee in a company: company code + optional EmpJob field (`division`, `businessUnit`, `costCenter`, …) equals/prefix value. Most specific wins.
+- **company_sf_mappings**: rules placing a SuccessFactors employee in a company: company code + optional EmpJob field (`division`, `businessUnit`, `costCenter`, …) equals/prefix value. Most specific wins. BSPL Corrugated = `businessUnit` 10000020.
 - **users**: id, name, email, password (NULL for IAS users), role, company_id (NULL = group admin), company_manual (1 = placed by hand, syncs keep it), sf_employee_id + SuccessFactors snapshot (sf_company_code, sf_business_unit, sf_division, sf_job_title, sf_synced_at), status (active/pending/disabled), auth_source, last_login_at
 - **jobs**: job_number unique per legal entity, company_id, legal_entity_id, po_number, design_name, image_path (= current version's display file), status (active/archived), archive fields, current_version_id
 - **design_versions**: every uploaded design per job (file_path, original_path, sha256, reference_status for the QC engine)
 - **audit_log**: append-only (DB triggers block UPDATE/DELETE)
-- **schema_migrations**: applied migrations
+- **schema_migrations**: applied migrations (checksums taken with LF line endings)
 
 Default admin (fresh installs only): `admin@example.com` / `Admin@123`
 
@@ -94,8 +110,8 @@ Stored values are phase 1's so existing accounts keep working.
 
 | Stored role | Shown as | Capabilities |
 |------|------|-------------|
-| `operator` | Quality checker | Search/view designs (public operator page also works without login for now) |
-| `qc_supervisor` | QC supervisor | Quality checker + approvals (phase 3) |
+| `operator` | Quality checker | Search/view designs (public lookup page also works without login) |
+| `qc_supervisor` | QC supervisor | Quality checker + approvals (photo checks) |
 | `sales` | Uploader | Upload designs and new versions, view own uploads |
 | `company_admin` | Company admin | Manage jobs and users of their company and its sub-companies |
 | `admin` | Group admin | Everything, all companies |
@@ -104,20 +120,17 @@ A user sees their own company and every company below it in the tree.
 
 ---
 
-## Environment Variables
+## Environment Variables (server/.env)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DB_HOST` | Yes | MySQL host (localhost for dev) |
-| `DB_PORT` | Yes | MySQL port (3306) |
-| `DB_NAME` | Yes | Database name (`qc_portal`) |
-| `DB_USER` | Yes | MySQL username |
-| `DB_PASS` | Yes | MySQL password |
-| `JWT_SECRET` | Yes | Secret key for signing JWTs |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS` | Yes | Database |
+| `JWT_SECRET` | Yes | Secret key for signing session tokens |
 | `JWT_EXPIRES_IN` | No | Token expiry, default `24h` |
-| `PORT` | No | Backend port, default `5000` |
-| `NODE_ENV` | No | `development` or `production` |
-| `CORS_ORIGIN` | No | Frontend URL for CORS |
+| `PORT` | No | API port, default `5000` |
+| `NODE_ENV` | No | `production` also serves `frontend/build` (name kept from the Node API) |
+| `CORS_ORIGIN` | No | Web app URL for CORS |
+| `UPLOAD_DIR` | No | Design files folder, default `backend/uploads` |
 | `RATE_LIMIT_MAX` | No | Requests per IP per 15 min on /api, default `1000` |
 | `TRUST_PROXY` | No | `1` behind IIS / a reverse proxy |
 | `LEGACY_DEFAULT_COMPANY_CODE` | No | Company for uploads by users without a company, default `BSPL-CORR` |
@@ -129,18 +142,18 @@ A user sees their own company and every company below it in the tree.
 
 ## Local Development
 
-```bash
-# Terminal 1 — Backend (http://localhost:5000)
-cd backend && npm install && npm run dev
+```powershell
+# API (http://localhost:5000)
+cd server; .venv\Scripts\python -m uvicorn app.main:app --port 5000 --reload
 
-# Terminal 2 — Frontend (http://localhost:3000)
-cd frontend && npm install && npm start
+# Web app (http://localhost:3000)
+cd frontend; npm start
 ```
 
-Frontend proxies `/api/*` and `/uploads/*` to `http://localhost:5000` via `frontend/vite.config.ts`.
+The web app proxies `/api/*` and `/uploads/*` to `http://localhost:5000` (`frontend/vite.config.ts`).
 
-Database changes: `cd backend && npm run migrate -- --status`, then `npm run migrate`.
-Tests: `cd backend && npm test`.
+Database changes: `cd server; .venv\Scripts\python scripts\migrate.py --status`, then without `--status`.
+Tests: `cd server; .venv\Scripts\python -m pytest`. Type-check the web app: `cd frontend; npx tsc --noEmit`.
 
 ---
 
@@ -154,3 +167,4 @@ Tests: `cd backend && npm test`.
 | 2026-04-13 | Removed Aiven/SSL dependencies | Using local MySQL only |
 | 2026-11-08 | Multi-company foundation | Companies tree, design versions, archive instead of delete, audit log, migrations. See docs/RELEASE_MULTI_COMPANY.md |
 | 2026-11-09 | SuccessFactors users + SAP sign-in | Users page (approve, add from SuccessFactors, sync), SAP IAS sign-in (off by default), job number checks on upload. Migration 006 |
+| 2026-11-09 | API moved to Python (FastAPI) + web app redesign | Same routes and responses; all 69 API checks pass unchanged. New design system and app shell |

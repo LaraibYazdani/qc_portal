@@ -10,3 +10,13 @@ backend/dist/
 backend/uploads/
 frontend/build/
 package-lock.json
+
+# Python API
+server/.venv/
+__pycache__/
+.pytest_cache/
+
+
+# Local notes with credentials
+*.local.md
+

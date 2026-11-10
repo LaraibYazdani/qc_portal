@@ -39,21 +39,32 @@ Only additions. The phase 1 code can still run against the upgraded database.
    mysqldump --single-transaction --routines --triggers -u <user> -p qc_portal > qc_portal_before_multicompany.sql
    ```
    and copy the whole `backend\uploads` folder.
-4. Stop the API service.
-5. Deploy the new code (`git pull`, then `npm ci && npm run build` in `backend` and `frontend`).
+4. Stop the old API service (the Node one).
+5. Deploy the new code: `git pull`, then
+   ```
+   cd frontend
+   npm ci && npm run build                   # → frontend/build, served by the API
+   cd ..\server
+   python -m venv .venv
+   .venv\Scripts\python -m pip install -r requirements.txt
+   ```
+   Settings: the API reads `server/.env`, else the existing `backend/.env` (same names). Set `NODE_ENV=production`.
 6. Migrate:
    ```
-   cd backend
-   npm run migrate:prod -- --dry-run     # lists 001-006
-   npm run migrate:prod
-   npm run migrate:prod -- --status      # all six "applied"
+   .venv\Scripts\python scripts\migrate.py --dry-run     # lists 001-006
+   .venv\Scripts\python scripts\migrate.py
+   .venv\Scripts\python scripts\migrate.py --status      # all six "applied"
    ```
-7. Start the API service.
+7. Start the new API as a Windows service (one process; e.g. with NSSM):
+   ```
+   .venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 5000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+   ```
+   (working directory `server\`; behind IIS keep `TRUST_PROXY=1`). Never add `--workers`: SAP sign-in state lives in memory.
 8. Check (see the checklist below).
 
 ## Checks after release
 
-- [ ] Log in as each existing account; the navbar shows the role label and company.
+- [ ] Log in as each existing account; the sidebar shows the role and company.
 - [ ] Operator page: search a known job number → the design shows as before.
 - [ ] Admin page lists 4,435 jobs, company "Corrugated Division".
 - [ ] Upload a test job → appears with v1; its files are under `uploads/BSPL-CORR/<JOB>/v1/`.
@@ -62,17 +73,17 @@ Only additions. The phase 1 code can still run against the upgraded database.
 
 ## Rollback
 
-Code: redeploy the previous release. Phase 1 code works on the upgraded database, so
-rolling back the code alone is usually enough.
+Code: stop the new service and start the previous (phase 1 Node) release again. Phase 1 code works on
+the upgraded database, so rolling back the code alone is usually enough.
 
-Database (only if needed), newest first:
+Database (only if needed), newest first, from `server\`:
 ```
-npm run migrate:prod -- --down 006
-npm run migrate:prod -- --down 005
-npm run migrate:prod -- --down 004
-npm run migrate:prod -- --down 003
-npm run migrate:prod -- --down 002
-npm run migrate:prod -- --down 001
+.venv\Scripts\python scripts\migrate.py --down 006
+.venv\Scripts\python scripts\migrate.py --down 005
+.venv\Scripts\python scripts\migrate.py --down 004
+.venv\Scripts\python scripts\migrate.py --down 003
+.venv\Scripts\python scripts\migrate.py --down 002
+.venv\Scripts\python scripts\migrate.py --down 001
 ```
 Or restore the backup from step 3. Each rollback file states what it cannot undo
 (for example, the same job number created by two companies after the upgrade).
@@ -84,9 +95,9 @@ On any machine with MariaDB 10.4 (production engine) or MySQL 8:
 CREATE DATABASE qc_portal_rehearsal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 -- import the production dump into it, then:
 set DB_NAME=qc_portal_rehearsal
-npm run migrate -- --status
-npm run migrate
-npm run migrate -- --down 006   (… down to 001, then migrate again: proves rollback works)
+.venv\Scripts\python scripts\migrate.py --status
+.venv\Scripts\python scripts\migrate.py
+.venv\Scripts\python scripts\migrate.py --down 006   (… down to 001, then migrate again: proves rollback works)
 ```
 Then start the API against the rehearsal database and run the checklist above.
 
@@ -119,5 +130,5 @@ are held in the API's memory, so the API must run as a single process (as today)
 - **Job number uniqueness**: currently per legal entity. If sub-companies of the same
   legal entity may reuse numbers, a small migration changes the unique key to per-company.
 - **Sub-company rules**: settled for BSPL: `businessUnit` (migration 005). For other
-  companies with sub-companies (e.g. PCL), run `npm run sf:org-lookup -- --company 1100`
+  companies with sub-companies (e.g. PCL), run `.venv\Scripts\python scripts\sf_org_lookup.py --company 1100` (in `server\`)
   to see their business units and add rules with `POST /api/companies/sf-mappings`.

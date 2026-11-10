@@ -1,249 +1,199 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  ArchiveBoxIcon, ArrowPathIcon, ArrowUpTrayIcon, BuildingOffice2Icon, DocumentDuplicateIcon,
+  MagnifyingGlassIcon, PhotoIcon, UserPlusIcon,
+} from '@heroicons/react/24/outline';
 import { JobResponse } from '../types/Job';
 import { useAuth } from '../contexts/AuthContext.tsx';
+import { api, formatDate, json } from '../utils/api';
+import { DesignPreview } from '../components/DesignPreview';
+import {
+  Alert, Badge, Button, Card, EmptyState, Field, Input, Modal, PageHeader, PageLoader, Pager, Segmented, Select, Stat, Thumb,
+} from '../components/ui';
+
+type Tab = 'active' | 'archived';
+const PAGE_SIZE = 25;
 
 export const Admin: React.FC = () => {
-  const { user, logout } = useAuth();
-  const [jobs, setJobs] = useState<JobResponse[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const { user } = useAuth();
+  const [lists, setLists] = useState<Partial<Record<Tab, JobResponse[]>>>({});
+  const [tab, setTab] = useState<Tab>('active');
+  const [pending, setPending] = useState<number | null>(null);
+  const [query, setQuery] = useState('');
+  const [company, setCompany] = useState('');
+  const [page, setPage] = useState(1);
+  const [message, setMessage] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
+  const [preview, setPreview] = useState<JobResponse | null>(null);
+  const [archiving, setArchiving] = useState<JobResponse | null>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    fetchJobs();
+  const load = useCallback(async (which: Tab) => {
+    const r = await api(`/api/jobs?status=${which}`);
+    if (r.ok) setLists(l => ({ ...l, [which]: r.data.data }));
+    else setMessage({ tone: 'danger', text: r.message || 'Could not load designs' });
   }, []);
 
-  const fetchJobs = async () => {
-    try {
-      const response = await fetch('/api/jobs', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      const data = await response.json();
+  useEffect(() => {
+    load('active');
+    load('archived');
+    api('/api/users?status=pending').then(r => setPending(r.ok ? r.data.data.length : 0));
+  }, [load]);
 
-      if (data.success) {
-        setJobs(data.data);
-      } else {
-        setMessage({ type: 'error', text: 'Failed to fetch jobs' });
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Network error' });
-    } finally {
-      setLoading(false);
-    }
+  const active = lists.active;
+  const rows = lists[tab];
+  const companies = useMemo(() => [...new Set((active ?? []).map(j => j.company_name).filter(Boolean) as string[])].sort(), [active]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (rows ?? []).filter(j =>
+      (!company || j.company_name === company) &&
+      (!q || j.job_number.toLowerCase().includes(q) || (j.design_name ?? '').toLowerCase().includes(q)
+        || (j.uploaded_by_name ?? '').toLowerCase().includes(q)));
+  }, [rows, query, company]);
+
+  useEffect(() => setPage(1), [query, company, tab]);
+
+  const thisMonth = useMemo(() => {
+    const now = new Date();
+    return (active ?? []).filter(j => { const d = new Date(j.created_at); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); }).length;
+  }, [active]);
+
+  const archive = async () => {
+    if (!archiving) return;
+    setBusy(true);
+    const r = await api(`/api/jobs/${archiving.id}`, { method: 'DELETE', ...json({ reason }) });
+    setBusy(false);
+    setMessage(r.ok ? { tone: 'success', text: `Job ${archiving.job_number} archived. It can be restored from the Archived tab.` }
+      : { tone: 'danger', text: r.message || 'Could not archive the job' });
+    setArchiving(null);
+    setReason('');
+    setPreview(null);
+    await Promise.all([load('active'), load('archived')]);
   };
 
-  // Jobs are archived, not deleted: hidden from search but kept for audit and restorable.
-  const handleArchive = async (job: JobResponse) => {
-    const reason = window.prompt(
-      `Archive job ${job.job_number}? It will no longer appear in searches. Its files and history are kept.\n\nReason (optional):`
-    );
-    if (reason === null) {
-      return;
-    }
-
-    try {
-      const response = await fetch(`/api/jobs/${job.id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ reason })
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setMessage({ type: 'success', text: `Job ${job.job_number} archived` });
-        fetchJobs();
-      } else {
-        setMessage({ type: 'error', text: data.message || 'Failed to archive job' });
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Network error' });
-    }
+  const restore = async (job: JobResponse) => {
+    setBusy(true);
+    const r = await api(`/api/jobs/${job.id}/restore`, { method: 'POST' });
+    setBusy(false);
+    setMessage(r.ok ? { tone: 'success', text: `Job ${job.job_number} restored.` } : { tone: 'danger', text: r.message || 'Could not restore the job' });
+    setPreview(null);
+    await Promise.all([load('active'), load('archived')]);
   };
 
-  const renderFilePreview = (job: JobResponse) => {
-    const fileExtension = job.image_path.split('.').pop()?.toLowerCase();
-    
-    if (['jpg', 'jpeg', 'png'].includes(fileExtension || '')) {
-      return (
-        <img 
-          src={job.image_path} 
-          alt={job.design_name || job.job_number}
-          className="w-16 h-16 object-cover rounded"
-        />
-      );
-    }
-    
-    return (
-      <div className="w-16 h-16 bg-gray-200 rounded flex items-center justify-center">
-        <span className="text-xs text-gray-600">PDF</span>
-      </div>
-    );
-  };
+  if (!active) return <PageLoader label="Loading designs" />;
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-blue-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+  const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const scope = user?.role === 'admin' ? 'across the group' : `for ${user?.company_name ?? 'your companies'}`;
 
   return (
-    <div className="min-h-screen bg-blue-50">
-      <div className="max-w-7xl mx-auto p-6">
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold text-blue-900">Admin Dashboard</h1>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">
-                Admin: <span className="font-semibold">{user?.name}</span>
-                {user?.company_name && <span className="ml-1">({user.company_name})</span>}
-              </span>
-              <button
-                onClick={logout}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
+    <div>
+      <PageHeader eyebrow="Administration" title="Overview" description={`Approved designs ${scope}.`}
+        actions={<>
+          <Link to="/bulk-upload"><Button variant="secondary" icon={DocumentDuplicateIcon}>Bulk upload</Button></Link>
+          <Link to="/upload"><Button icon={ArrowUpTrayIcon}>Upload design</Button></Link>
+        </>} />
 
-          {message && (
-            <div className={`p-4 rounded-lg mb-6 ${
-              message.type === 'success' 
-                ? 'bg-green-50 border border-green-200 text-green-800' 
-                : 'bg-red-50 border border-red-200 text-red-800'
-            }`}>
-              {message.text}
-            </div>
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat label="Active designs" value={active.length.toLocaleString()} icon={PhotoIcon} hint="Available to quality checkers" />
+        <Stat label="Added this month" value={thisMonth.toLocaleString()} icon={ArrowUpTrayIcon}
+          hint={new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} />
+        <Stat label="Companies" value={companies.length} icon={BuildingOffice2Icon} hint="With at least one design" />
+        <Link to="/admin/users" className="block rounded-2xl transition-shadow hover:shadow-lift">
+          <Stat label="Waiting for approval" value={pending ?? '–'} icon={UserPlusIcon} tone={pending ? 'warning' : 'brand'}
+            hint={pending ? 'People who signed in with SAP' : 'No one is waiting'} />
+        </Link>
+      </div>
+
+      {message && <Alert tone={message.tone} className="mb-6" onClose={() => setMessage(null)}>{message.text}</Alert>}
+
+      <Card padded={false}>
+        <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-5 py-4">
+          <Segmented<Tab> value={tab} onChange={setTab} options={[
+            { value: 'active', label: 'Active', count: active.length },
+            { value: 'archived', label: 'Archived', count: lists.archived?.length },
+          ]} />
+          <div className="relative ml-auto w-full sm:w-72">
+            <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+            <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Job number, design or uploader" className="pl-9" />
+          </div>
+          {companies.length > 1 && (
+            <Select value={company} onChange={e => setCompany(e.target.value)} className="w-full sm:w-56">
+              <option value="">All companies</option>
+              {companies.map(c => <option key={c}>{c}</option>)}
+            </Select>
           )}
+        </div>
 
-          <div className="mb-4">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">
-              All Jobs ({jobs.length})
-            </h2>
-          </div>
-
-          {jobs.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              No jobs found in the system.
-            </div>
-          ) : (
+        {!rows ? <PageLoader /> : filtered.length === 0 ? (
+          <EmptyState icon={tab === 'archived' ? ArchiveBoxIcon : MagnifyingGlassIcon}
+            title={query || company ? 'No designs match' : tab === 'archived' ? 'Nothing archived' : 'No designs yet'}
+            description={query || company ? 'Try a different job number or clear the filters.'
+              : tab === 'archived' ? 'Archived designs appear here and can be restored.' : 'Upload the first design to get started.'} />
+        ) : (
+          <>
             <div className="overflow-x-auto">
-              <table className="min-w-full bg-white border border-gray-200 rounded-lg">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Preview
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Job Number
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      PO Number
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Design Name
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Company
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Uploaded By
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Created
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs font-medium text-ink-500">
+                    <th className="px-5 py-3 font-medium">Design</th>
+                    <th className="px-3 py-3 font-medium">Company</th>
+                    <th className="px-3 py-3 font-medium">Uploaded by</th>
+                    <th className="px-3 py-3 font-medium">{tab === 'archived' ? 'Archived' : 'Date'}</th>
+                    <th className="px-5 py-3" />
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {jobs.map((job) => (
-                    <tr key={job.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {renderFilePreview(job)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
-                        {job.job_number}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-500">
-                        {job.po_number || '-'}
-                      </td>
-                      <td className="px-6 py-4 text-gray-500">
-                        {job.design_name || '-'}
-                        {job.current_version && job.current_version > 1 && (
-                          <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">v{job.current_version}</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-500">
-                        {job.company_name || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-500">
-                        {job.uploaded_by_name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-500">
-                        {new Date(job.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex space-x-2">
-                          <a
-                            href={job.image_path}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-900"
-                          >
-                            View
-                          </a>
-                          <button
-                            onClick={() => handleArchive(job)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Archive
-                          </button>
+                <tbody className="divide-y divide-ink-100">
+                  {pageRows.map(job => (
+                    <tr key={job.id} onClick={() => setPreview(job)} className="cursor-pointer transition-colors hover:bg-ink-50/70">
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-3.5">
+                          <Thumb src={job.image_path} alt={job.job_number} />
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-2">
+                              <span className="job-number font-semibold text-ink-950">{job.job_number}</span>
+                              {!!job.current_version && job.current_version > 1 && <Badge tone="brand">v{job.current_version}</Badge>}
+                            </p>
+                            <p className="max-w-[22rem] truncate text-[13px] text-ink-500">{job.design_name || '—'}</p>
+                          </div>
                         </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-ink-600">{job.company_name || '—'}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-ink-600">{job.uploaded_by_name}</td>
+                      <td className="tabular whitespace-nowrap px-3 py-3 text-ink-500">
+                        {formatDate(tab === 'archived' ? job.archived_at : job.created_at)}
+                      </td>
+                      <td className="px-5 py-3 text-right" onClick={e => e.stopPropagation()}>
+                        {tab === 'active'
+                          ? <Button size="sm" variant="ghost" icon={ArchiveBoxIcon} onClick={() => setArchiving(job)}>Archive</Button>
+                          : <Button size="sm" variant="ghost" icon={ArrowPathIcon} disabled={busy} onClick={() => restore(job)}>Restore</Button>}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
+            <Pager page={page} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
+          </>
+        )}
+      </Card>
 
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <a
-              href="/upload"
-              className="block p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
-            >
-              <h3 className="font-semibold text-blue-900">Upload New Design</h3>
-              <p className="text-sm text-blue-700 mt-1">Add a new job design</p>
-            </a>
-            <a
-              href="/my-jobs"
-              className="block p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
-            >
-              <h3 className="font-semibold text-green-900">View My Jobs</h3>
-              <p className="text-sm text-green-700 mt-1">Manage your uploads</p>
-            </a>
-            <a
-              href="/admin/users"
-              className="block p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
-            >
-              <h3 className="font-semibold text-purple-900">User Management</h3>
-              <p className="text-sm text-purple-700 mt-1">Approve sign-ins, add people from SuccessFactors, set roles</p>
-            </a>
-          </div>
-        </div>
-      </div>
+      <DesignPreview job={preview} onClose={() => setPreview(null)}
+        footer={preview && (preview.status === 'archived'
+          ? <Button variant="secondary" icon={ArrowPathIcon} loading={busy} onClick={() => restore(preview)}>Restore</Button>
+          : <Button variant="danger" icon={ArchiveBoxIcon} onClick={() => setArchiving(preview)}>Archive</Button>)} />
+
+      <Modal open={!!archiving} onClose={() => setArchiving(null)} title={`Archive job ${archiving?.job_number ?? ''}?`}
+        description="It disappears from searches but nothing is deleted: the files and history stay, and it can be restored."
+        footer={<>
+          <Button variant="secondary" onClick={() => setArchiving(null)}>Cancel</Button>
+          <Button variant="dark" loading={busy} onClick={archive}>Archive</Button>
+        </>}>
+        <Field label="Reason" htmlFor="reason" optional hint="Kept in the audit log.">
+          <Input id="reason" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Test upload, replaced by job 267N2944" />
+        </Field>
+      </Modal>
     </div>
   );
 };

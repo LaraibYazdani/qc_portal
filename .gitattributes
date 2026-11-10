@@ -1,0 +1,3 @@
+# Migration checksums must not change with the checkout's line endings
+sql/migrations/** text eol=lf
+

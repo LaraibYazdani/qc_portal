@@ -1,221 +1,128 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
-import { useAuth } from '../contexts/AuthContext.tsx';
+import { ArrowUpTrayIcon, CloudArrowUpIcon, DocumentDuplicateIcon, DocumentIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { api } from '../utils/api';
 import { isUsualJobNumber, normaliseJobNumber } from '../utils/jobNumber';
+import { Alert, Button, Card, CardHeader, Field, Input, Modal, PageHeader, cx } from '../components/ui';
+
+const EMPTY = { job_number: '', po_number: '', design_name: '' };
 
 export const Upload: React.FC = () => {
-  const { user } = useAuth();
-  const [formData, setFormData] = useState({
-    job_number: '',
-    po_number: '',
-    design_name: ''
-  });
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [form, setForm] = useState(EMPTY);
+  const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{ tone: 'success' | 'danger'; text: React.ReactNode } | null>(null);
+  const [confirmUnusual, setConfirmUnusual] = useState<string | null>(null);
 
-  const onDrop = (acceptedFiles: File[]) => {
-    if (acceptedFiles.length > 0) {
-      setSelectedFile(acceptedFiles[0]);
-      setMessage(null);
-    }
-  };
+  const previewUrl = useMemo(() => (file && file.type.startsWith('image/') ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'image/jpeg': ['.jpg', '.jpeg'],
-      'image/png': ['.png'],
-      'application/pdf': ['.pdf']
-    },
+  const { getRootProps, getInputProps, isDragActive, fileRejections } = useDropzone({
+    onDrop: accepted => { if (accepted[0]) { setFile(accepted[0]); setMessage(null); } },
+    accept: { 'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'], 'application/pdf': ['.pdf'] },
     maxFiles: 1,
-    maxSize: 20 * 1024 * 1024 // 20MB
+    maxSize: 20 * 1024 * 1024,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    submit(false);
-  };
+  const unusual = !!form.job_number.trim() && !isUsualJobNumber(form.job_number);
 
-  // allowUnusual: the uploader confirmed a job number that doesn't follow the usual format
   const submit = async (allowUnusual: boolean) => {
-    if (!selectedFile) {
-      setMessage({ type: 'error', text: 'Please select a design file' });
-      return;
-    }
-
-    if (!formData.job_number.trim()) {
-      setMessage({ type: 'error', text: 'Job number is required' });
-      return;
-    }
-
+    if (!file) { setMessage({ tone: 'danger', text: 'Choose the design file to upload.' }); return; }
+    if (!form.job_number.trim()) { setMessage({ tone: 'danger', text: 'Enter the job number.' }); return; }
     setLoading(true);
     setMessage(null);
+    const body = new FormData();
+    body.append('job_number', normaliseJobNumber(form.job_number));
+    body.append('po_number', form.po_number);
+    body.append('design_name', form.design_name);
+    if (allowUnusual) body.append('allow_unusual', 'true');
+    body.append('design', file);
+    const r = await api('/api/jobs', { method: 'POST', body });
+    setLoading(false);
 
-    try {
-      const formDataToSend = new FormData();
-      formDataToSend.append('job_number', normaliseJobNumber(formData.job_number));
-      formDataToSend.append('po_number', formData.po_number);
-      formDataToSend.append('design_name', formData.design_name);
-      if (allowUnusual) formDataToSend.append('allow_unusual', 'true');
-      formDataToSend.append('design', selectedFile);
-
-      const response = await fetch('/api/jobs', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formDataToSend
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setMessage({ type: 'success', text: 'Design uploaded successfully!' });
-        setFormData({ job_number: '', po_number: '', design_name: '' });
-        setSelectedFile(null);
-      } else if (data.code === 'UNUSUAL_JOB_NUMBER' && !allowUnusual) {
-        setLoading(false);
-        if (window.confirm(`${data.message}\n\nSave it with this job number anyway?`)) await submit(true);
-        return;
-      } else {
-        setMessage({ type: 'error', text: data.message || 'Upload failed' });
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Network error. Please try again.' });
-    } finally {
-      setLoading(false);
+    if (r.ok) {
+      const jobNumber = normaliseJobNumber(form.job_number);
+      setMessage({ tone: 'success', text: <>Design for job <span className="job-number font-semibold">{jobNumber}</span> uploaded. Quality checkers can look it up now.</> });
+      setForm(EMPTY);
+      setFile(null);
+    } else if (r.data?.code === 'UNUSUAL_JOB_NUMBER' && !allowUnusual) {
+      setConfirmUnusual(r.message ?? '');
+    } else {
+      setMessage({ tone: 'danger', text: r.message || 'Upload failed' });
     }
   };
 
   return (
-    <div className="min-h-screen bg-blue-50">
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold text-blue-900">Upload Design</h1>
-            <div className="text-sm text-gray-600">
-              Logged in as: <span className="font-semibold">{user?.name}</span> ({user?.role})
-            </div>
-          </div>
+    <div>
+      <PageHeader eyebrow="Designs" title="Upload a design"
+        description="Add the approved artwork for one job. To add many at once, use bulk upload."
+        actions={<Link to="/bulk-upload"><Button variant="secondary" icon={DocumentDuplicateIcon}>Bulk upload</Button></Link>} />
 
-          {message && (
-            <div className={`p-4 rounded-lg mb-6 ${
-              message.type === 'success' 
-                ? 'bg-green-50 border border-green-200 text-green-800' 
-                : 'bg-red-50 border border-red-200 text-red-800'
-            }`}>
-              {message.text}
+      {message && <Alert tone={message.tone} className="mb-6" onClose={() => setMessage(null)}>{message.text}</Alert>}
+
+      <form onSubmit={e => { e.preventDefault(); submit(false); }} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+        <Card>
+          <CardHeader title="Job details" description="The job number must match the job card exactly." />
+          <div className="space-y-5">
+            <Field label="Job number" htmlFor="job_number"
+              hint="Format: year, month, serial, e.g. 267N2943, 26ON4465, 2670699."
+              warning={unusual ? "This doesn't look like a job number. Check it before uploading." : undefined}>
+              <Input id="job_number" value={form.job_number} required invalid={unusual} autoComplete="off" spellCheck={false}
+                onChange={e => setForm({ ...form, job_number: e.target.value.toUpperCase() })}
+                placeholder="267N2943" className="job-number text-base" />
+            </Field>
+            <Field label="Design name" htmlFor="design_name" optional hint="Customer and product, e.g. Lipton12pck_CWC.">
+              <Input id="design_name" value={form.design_name} onChange={e => setForm({ ...form, design_name: e.target.value })} />
+            </Field>
+            <Field label="PO number" htmlFor="po_number" optional>
+              <Input id="po_number" value={form.po_number} onChange={e => setForm({ ...form, po_number: e.target.value })} />
+            </Field>
+          </div>
+          <Button type="submit" size="lg" icon={ArrowUpTrayIcon} loading={loading} className="mt-8 w-full">Upload design</Button>
+        </Card>
+
+        <Card padded={false} className="overflow-hidden">
+          {file ? (
+            <div className="flex h-full flex-col">
+              <div className="art-bg flex min-h-[340px] flex-1 items-center justify-center p-6">
+                {previewUrl
+                  ? <img src={previewUrl} alt="Selected design" className="max-h-[460px] w-auto rounded-md object-contain shadow-lift" />
+                  : <DocumentIcon className="h-16 w-16 text-ink-300" />}
+              </div>
+              <div className="flex items-center gap-3 border-t border-ink-100 px-5 py-4">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-ink-900">{file.name}</p>
+                  <p className="tabular text-xs text-ink-500">{(file.size / 1024 / 1024).toFixed(2)} MB · {file.type || 'file'}</p>
+                </div>
+                <Button type="button" size="sm" variant="ghost" icon={XMarkIcon} onClick={() => setFile(null)}>Remove</Button>
+              </div>
+            </div>
+          ) : (
+            <div {...getRootProps()} className={cx('m-3 flex min-h-[420px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 text-center transition-colors',
+              isDragActive ? 'border-brand-400 bg-brand-50/60' : 'border-ink-200 hover:border-ink-300 hover:bg-ink-50/50')}>
+              <input {...getInputProps()} />
+              <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 ring-1 ring-brand-100">
+                <CloudArrowUpIcon className="h-7 w-7 text-brand-600" />
+              </span>
+              <p className="text-[15px] font-medium text-ink-900">{isDragActive ? 'Drop the file here' : 'Drop the design file here'}</p>
+              <p className="mt-1 text-sm text-ink-500">or <span className="font-medium text-brand-700">browse</span> · JPG, PNG or PDF, up to 20 MB</p>
+              {fileRejections.length > 0 && (
+                <p className="mt-4 text-sm text-red-600">That file can't be used: only JPG, PNG or PDF up to 20 MB.</p>
+              )}
             </div>
           )}
+        </Card>
+      </form>
 
-          <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div>
-                <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="job_number">
-                  Job Number *
-                </label>
-                <input
-                  id="job_number"
-                  type="text"
-                  value={formData.job_number}
-                  onChange={(e) => setFormData({ ...formData, job_number: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="e.g. 267N2943"
-                  required
-                />
-                {formData.job_number.trim() && !isUsualJobNumber(formData.job_number) && (
-                  <p className="text-xs text-amber-700 mt-1">
-                    Doesn't look like a job number (e.g. 267N2943, 26ON4465, 2670699). Check it before uploading.
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="po_number">
-                  PO Number
-                </label>
-                <input
-                  id="po_number"
-                  type="text"
-                  value={formData.po_number}
-                  onChange={(e) => setFormData({ ...formData, po_number: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter PO number (optional)"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="design_name">
-                  Design Name
-                </label>
-                <input
-                  id="design_name"
-                  type="text"
-                  value={formData.design_name}
-                  onChange={(e) => setFormData({ ...formData, design_name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter design description (optional)"
-                />
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <label className="block text-gray-700 text-sm font-bold mb-2">
-                Design File *
-              </label>
-              <div
-                {...getRootProps()}
-                className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                  isDragActive
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                <input {...getInputProps()} />
-                {selectedFile ? (
-                  <div>
-                    <p className="text-lg font-semibold text-green-600">{selectedFile.name}</p>
-                    <p className="text-sm text-gray-500">
-                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <p className="text-lg text-gray-600">
-                      {isDragActive
-                        ? 'Drop the file here...'
-                        : 'Drag & drop a design file here, or click to select'}
-                    </p>
-                    <p className="text-sm text-gray-500 mt-2">
-                      Supported formats: JPG, PNG, PDF (max 20MB)
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
-            >
-              {loading ? 'Uploading...' : 'Upload Design'}
-            </button>
-          </form>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Upload Guidelines</h2>
-          <ul className="list-disc list-inside space-y-2 text-gray-600">
-            <li>Job number must be unique</li>
-            <li>File formats accepted: JPG, JPEG, PNG, PDF</li>
-            <li>Maximum file size: 20MB</li>
-            <li>Design files will be automatically optimized</li>
-            <li>You can only view and manage your own uploads</li>
-          </ul>
-        </div>
-      </div>
+      <Modal open={confirmUnusual !== null} onClose={() => setConfirmUnusual(null)} title="Unusual job number"
+        description={confirmUnusual ?? ''}
+        footer={<>
+          <Button variant="secondary" onClick={() => setConfirmUnusual(null)}>Fix the number</Button>
+          <Button onClick={() => { setConfirmUnusual(null); submit(true); }}>Upload anyway</Button>
+        </>}>
+        <p className="text-sm text-ink-600">Operators search by the exact job number. If it doesn't match the job card, they won't find this design.</p>
+      </Modal>
     </div>
   );
 };

@@ -1,101 +1,51 @@
-# QC Portal (Carton Design Verification)
+# Packages QC Portal
 
-## Overview
-Modern React web application for ensuring correct artwork on the carton printing line. Sales/Admin upload approved designs, factory operators can instantly search and verify.
+The quality workspace for the Packages group: approved carton artwork by job number,
+upload history with versions, user management through SAP SuccessFactors, and (next)
+photo checks of printed sheets against the approved design.
 
-## Tech Stack
-- **Frontend**: React 18 + TypeScript + Tailwind CSS
-- **Backend**: Node.js + Express + TypeScript
-- **Database**: MySQL
-- **Storage**: Cloudinary
-- **Authentication**: JWT tokens
+| Part | Stack | Folder |
+|---|---|---|
+| API | Python 3.12, FastAPI, PyMySQL | `server/` |
+| Web app | React 18, TypeScript, Tailwind, Vite | `frontend/` |
+| Database | MariaDB 10.4 (production) / MySQL 8, numbered SQL migrations | `sql/migrations/` |
+| Sign-in | Email + password, and SAP IAS (OpenID Connect) when enabled | |
+| Files | Local disk, `backend/uploads/` (where phase 1's artwork already is) | |
 
-## Requirements
-- Node.js 16+
-- MySQL 8.0+
-- Cloudinary account
+## Run it locally
 
-## Quick Start
+```powershell
+# API (http://localhost:5000)
+cd server
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+copy .env.example .env          # then fill in DB_* and JWT_SECRET
+.venv\Scripts\python scripts\migrate.py --status
+.venv\Scripts\python scripts\migrate.py
+.venv\Scripts\python -m uvicorn app.main:app --port 5000 --reload
 
-### Database Setup
-1. Create a MySQL database named `qc_portal`
-2. Run the setup script:
-   ```bash
-   mysql -u your_user -p qc_portal < sql/database_setup.sql
-   ```
+# Web app (http://localhost:3000, proxies /api and /uploads to :5000)
+cd frontend
+npm install
+npm start
+```
 
-### Backend Setup
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   npm install
-   ```
-
-2. Create environment file:
-   ```bash
-   cp .env.example .env
-   ```
-
-3. Update `.env` with your credentials (database, JWT secret, Cloudinary)
-
-4. Start the backend server:
-   ```bash
-   npm run dev
-   ```
-
-### Frontend Setup
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   npm install
-   npm start
-   ```
-
-2. Open http://localhost:3000 in your browser
-
-## Login Credentials
-
-### 1. Admin Users (Full Access)
-- **Ahmed Imran** (AM SHEQ, ID: 30001891)
-  - Email: `ahmed.imran@company.com`
-  - Password: `Sales@123`
-  
-- **Administrator** (System Admin)
-  - Email: `admin@example.com`
-  - Password: `Admin@123`
-
-### 2. Sales User (Upload & View Own Jobs)
-- **Mirza Sarwan** (Incharge Arts & Design, ID: 30001037)
-  - Email: `mirza.sarwan@company.com`
-  - Password: `Sales@123`
-
-### 3. Operator User (View Only Access)
-- **Rashid Ali** (Assistant Operator, ID: 30001278)
-  - Email: `rashid.ali@company.com`
-  - Password: `Operator@123`
-  - Role: Operator (View-only access)
+Tests: `cd server && .venv\Scripts\python -m pytest`.
 
 ## Roles
-- **Operator**: No login required - search and view designs
-- **Sales**: Login required - upload designs, view own uploads
-- **Admin**: Full access - manage all jobs and users
 
-## Features
-- Modern responsive UI with Tailwind CSS
-- Drag-and-drop file upload
-- JWT-based authentication
-- Role-based access control
-- Cloudinary file storage
-- Mobile-friendly design
-- Real-time search
+| Stored role | Shown as | Can |
+|---|---|---|
+| `operator` | Quality checker | Look up designs |
+| `qc_supervisor` | QC supervisor | Quality checker + approvals (photo checks) |
+| `sales` | Uploader | Upload designs and new versions |
+| `company_admin` | Company admin | Manage designs and users of their company and its sub-companies |
+| `admin` | Group admin | Everything, all companies |
 
-## Security
-- JWT token authentication
-- Password hashing with bcrypt
-- Role-based access control
-- File upload validation
-- SQL injection prevention
-- CORS configuration
+The design lookup at `/operator` also works without signing in, for shop-floor terminals.
 
-## Deployment
-See [README-REACT.md](README-REACT.md) for detailed deployment instructions.
+## More
+
+- `CLAUDE.md`: how the code is organised and the rules for changing it.
+- `docs/RELEASE_MULTI_COMPANY.md`: release, rollback and SAP sign-in runbook.
+- No accounts or passwords belong in this repository. Ask an administrator for access.
